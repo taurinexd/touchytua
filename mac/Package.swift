@@ -7,11 +7,15 @@ let package = Package(
     products: [
         // What the iOS app links: wire types, handshake, encrypted channel.
         .library(name: "TouchyProtocol", targets: ["TouchyProtocol"]),
+        // The phone side: encrypted link, state, reconnection. Used by the
+        // iOS app and by the command-line phone simulator.
+        .library(name: "TouchyClient", targets: ["TouchyClient"]),
         .library(name: "TouchyKit", targets: ["TouchyKit"]),
     ],
     targets: [
         // Shared with the iOS app. Nothing here may depend on macOS.
         .target(name: "TouchyProtocol"),
+        .target(name: "TouchyClient", dependencies: ["TouchyProtocol"]),
         // The Mac side: hooks, session registry, pairing store, daemon logic.
         .target(name: "TouchyKit", dependencies: ["TouchyProtocol"]),
         // Hook relay: tiny, dependency-free, fast to spawn.
@@ -24,6 +28,8 @@ let package = Package(
         .executableTarget(name: "touchytua", dependencies: ["TouchyKit"]),
         // CLI that simulates the phone, for end-to-end verification.
         .executableTarget(name: "touchytua-client", dependencies: ["TouchyKit"]),
+        // The client is tested against the real Mac-side router and hub.
+        .testTarget(name: "TouchyClientTests", dependencies: ["TouchyClient", "TouchyKit", "TouchyProtocol"]),
         .testTarget(name: "TouchyKitTests", dependencies: ["TouchyKit", "TouchyProtocol"], exclude: ["Fixtures"]),
     ]
 )

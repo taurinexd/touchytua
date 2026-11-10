@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 @Suite struct WebSocketTests {
     @Test func acceptKeyMatchesRFC6455Example() {

@@ -1,11 +1,14 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
-private func env(_ name: String, session: String = "s1", at: Double, extra: [String: JSONValue] = [:]) -> HookEnvelope {
+private func env(
+    _ name: String, session: String = "s1", at: Double, extra: [String: JSONValue] = [:], socket: String? = nil
+) -> HookEnvelope {
     var e: [String: JSONValue] = ["hook_event_name": .string(name), "session_id": .string(session), "cwd": .string("/p/app")]
     for (k, v) in extra { e[k] = v }
-    return HookEnvelope(v: 1, capturedAt: at, event: e)
+    return HookEnvelope(v: 1, capturedAt: at, event: e, messagingSocket: socket, messagingToken: socket.map { _ in "tok" })
 }
 
 @Suite struct HubTests {
@@ -100,14 +103,17 @@ private final class Changes: @unchecked Sendable {
     @Test func deadSessionsAreRemovedWithTheirRequests() async throws {
         let changes = Changes()
         let hub = Hub { changes.add($0) }
-        _ = await hub.handle(env("UserPromptSubmit", session: "alive", at: 1))
-        _ = await hub.handle(env("UserPromptSubmit", session: "dead", at: 1))
+        _ = await hub.handle(env("UserPromptSubmit", session: "alive", at: 1, socket: "/tmp/alive.sock"))
+        _ = await hub.handle(env("UserPromptSubmit", session: "dead", at: 1, socket: "/tmp/dead.sock"))
+        // No inbox, no way to tell: such a session is kept.
+        _ = await hub.handle(env("UserPromptSubmit", session: "no-inbox", at: 1))
         let task = Task { await hub.handle(env("PermissionRequest", session: "dead", at: 2, extra: ["tool_name": .string("Bash"), "tool_input": .object([:])])) }
         for _ in 0..<200 where await hub.pending.openRequests.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
 
-        await hub.reap { $0.id != "dead" }
+        await hub.reap { $0.socket != "/tmp/dead.sock" }
 
-        #expect(await hub.sessions.keys.sorted() == ["alive"])
+        #expect(await hub.sessions.keys.sorted() == ["alive", "no-inbox"])
+        #expect(await hub.inbox.keys.sorted() == ["alive"])
         #expect(await hub.pending.openRequests.isEmpty)
         #expect(await task.value == PendingRequests.emptyReply)
         #expect(changes.removed == ["dead"])

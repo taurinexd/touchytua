@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private struct Pair {
     let macStatic = Curve25519.KeyAgreement.PrivateKey()

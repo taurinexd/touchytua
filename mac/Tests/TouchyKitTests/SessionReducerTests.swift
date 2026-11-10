@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private func envelope(
     _ name: String, session: String = "s1", at: Double, extra: [String: JSONValue] = [:],
@@ -22,8 +23,6 @@ private func envelope(
         let s = sessions["s1"]
         #expect(s?.state == .ready)
         #expect(s?.title == "app")
-        #expect(s?.inboxSocket == "/tmp/cc-socks/1.sock")
-        #expect(s?.inboxToken == "tok")
     }
 
     @Test func promptStartsRound() {
@@ -111,10 +110,11 @@ private func envelope(
 
     /// A daemon restarted mid-session never sees SessionStart again: the
     /// credentials must be picked up from whatever event comes next.
-    @Test func inboxCredentialsFromLaterEventAreStored() {
-        var sessions: [String: Session] = [:]
-        SessionReducer.apply(envelope("UserPromptSubmit", at: 100, socket: "/tmp/cc-socks/9.sock", token: "tok9"), to: &sessions)
-        #expect(sessions["s1"]?.inboxSocket == "/tmp/cc-socks/9.sock")
-        #expect(sessions["s1"]?.inboxToken == "tok9")
+    @Test func inboxCredentialsFromLaterEventAreStored() async {
+        let hub = Hub()
+        _ = await hub.handle(envelope("UserPromptSubmit", at: 100, socket: "/tmp/cc-socks/9.sock", token: "tok9"))
+        #expect(await hub.inbox["s1"] == InboxCredentials(socket: "/tmp/cc-socks/9.sock", token: "tok9"))
+        _ = await hub.handle(envelope("SessionEnd", at: 101))
+        #expect(await hub.inbox["s1"] == nil)
     }
 }

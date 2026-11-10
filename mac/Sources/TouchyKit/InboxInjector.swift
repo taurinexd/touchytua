@@ -5,15 +5,14 @@ import Foundation
 /// Claude Code presents it as a message from another session; callers add
 /// `PhoneRouter.promptPrefix`.
 public enum InboxInjector {
-    public enum Failure: Error, Equatable { case noInbox, connectFailed }
+    public enum Failure: Error, Equatable { case connectFailed }
 
     /// Whether the session's inbox socket still accepts connections: false
     /// means the session is gone (a crashed process leaves its socket file
-    /// behind, but nothing listens on it). Nil when the session has no inbox.
+    /// behind, but nothing listens on it).
     /// Claude Code accepts and later drops a connection that sends nothing.
-    public static func isReachable(_ session: Session) -> Bool? {
-        guard let path = session.inboxSocket else { return nil }
-        guard let fd = connectedSocket(path) else { return false }
+    public static func isReachable(_ inbox: InboxCredentials) -> Bool {
+        guard let fd = connectedSocket(inbox.socket) else { return false }
         close(fd)
         return true
     }
@@ -35,9 +34,8 @@ public enum InboxInjector {
         return fd
     }
 
-    public static func inject(text: String, into session: Session) throws {
-        guard let path = session.inboxSocket, let token = session.inboxToken else { throw Failure.noInbox }
-        let auth: JSONValue = .object(["type": .string("auth"), "token": .string(token)])
+    public static func inject(text: String, into inbox: InboxCredentials) throws {
+        let auth: JSONValue = .object(["type": .string("auth"), "token": .string(inbox.token)])
         let user: JSONValue = .object([
             "type": .string("user"),
             "message": .object(["role": .string("user"), "content": .string(text)]),
@@ -48,7 +46,7 @@ public enum InboxInjector {
         payload.append(try encoder.encode(user))
         payload.append(0x0A)
 
-        guard let fd = connectedSocket(path) else { throw Failure.connectFailed }
+        guard let fd = connectedSocket(inbox.socket) else { throw Failure.connectFailed }
         defer { close(fd) }
         // Both lines in one write: Claude Code closes a connection that sends
         // no complete line within its first-line deadline.

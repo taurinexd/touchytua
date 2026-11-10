@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private func tempHome() -> URL {
     let u = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("tt-home-\(UUID().uuidString)")

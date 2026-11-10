@@ -44,4 +44,5 @@ Definiti in `TouchyKit/Messages.swift`.
 - Le date sono secondi dal 2001-01-01 UTC (numero).
 - Plugin e app si aggiornano separatamente: un `t` sconosciuto **non** chiude la connessione. Il telefono lo ignora; il Mac risponde `error` con `code = "unsupported_message"`.
 - Codici di `error`: `unknown_request`, `unknown_session`, `inject_failed`, `unsupported_message`, `bad_message`.
+- `request.toolInput`: le stringhe oltre 2.000 caratteri arrivano tagliate (con `…`) e la richiesta porta `truncated: true`. La risposta all'hook usa sempre l'input originale.
 - Il Mac invia `session` solo quando cambia qualcosa di visibile (stato, titolo, round), non a ogni tool call.

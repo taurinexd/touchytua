@@ -16,7 +16,20 @@ public struct PhoneRouter: Sendable {
 
     public func snapshot() async -> MacToPhone {
         let sessions = await hub.sessions.values.sorted { $0.lastEventAt > $1.lastEventAt }
-        return .snapshot(sessions: sessions, pending: await hub.pending.openRequests, usage: await hub.usage)
+        let pending = await hub.pending.openRequests.map { $0.forPhone() }
+        return .snapshot(sessions: sessions, pending: pending, usage: await hub.usage)
+    }
+
+    /// What a change in the hub looks like to the phone. Together with
+    /// `snapshot`, the only place where Mac-side data becomes a message.
+    public static func message(for change: Hub.Change) -> MacToPhone {
+        switch change {
+        case let .session(session): .session(session)
+        case let .sessionRemoved(id): .sessionRemoved(id: id)
+        case let .pending(.opened(request)): .request(request.forPhone())
+        case let .pending(.resolved(id, by)): .requestResolved(id: id, by: by)
+        case let .usage(usage): .usage(usage)
+        }
     }
 
     /// Returns the messages to send back to this phone.

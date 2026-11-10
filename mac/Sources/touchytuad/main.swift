@@ -28,19 +28,16 @@ final class ChangeRelay: @unchecked Sendable {
         switch change {
         case let .session(s):
             Log.info("session \(s.id.prefix(8)) \(s.state.rawValue) \"\(s.title.prefix(40))\"")
-            phone?.push(.session(s))
         case let .sessionRemoved(id):
             Log.info("session \(id.prefix(8)) removed")
-            phone?.push(.sessionRemoved(id: id))
         case let .pending(.opened(r)):
             Log.info("request \(r.id) opened: \(r.kind.rawValue) \(r.toolName) (session \(r.sessionId.prefix(8)))")
-            phone?.push(.request(r))
         case let .pending(.resolved(id, by)):
             Log.info("request \(id) resolved by \(by.rawValue)")
-            phone?.push(.requestResolved(id: id, by: by))
-        case let .usage(u):
-            phone?.push(.usage(u))
+        case .usage:
+            break
         }
+        phone?.push(PhoneRouter.message(for: change))
     }
 }
 

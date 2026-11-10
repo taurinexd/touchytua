@@ -1,0 +1,10 @@
+.build/
+.superpowers/
+.DS_Store
+*.xcodeproj/xcuserdata/
+.build-*/
+# Private working docs and spikes (personal data); public docs are re-included.
+docs/*
+!docs/protocol.md
+spikes/
+tests/e2e-plan1.sh

@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-11-06T10:00:00.000Z","message":{"role":"user","content":"vecchio prompt"}}
+{"type":"assistant","timestamp":"2026-11-06T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"text","text":"vecchio"}],"usage":{"input_tokens":10,"output_tokens":1300}}}
+{"type":"user","timestamp":"2026-11-06T10:05:00.000Z","message":{"role":"user","content":"nuovo prompt"}}
+{"type":"assistant","timestamp":"2026-11-06T10:05:03.000Z","message":{"role":"assistant","content":[{"type":"text","text":"uno"}],"usage":{"input_tokens":10,"output_tokens":500}}}
+not json
+{"type":"assistant","timestamp":"2026-11-06T10:05:09.000Z","message":{"role":"assistant","content":[{"type":"text","text":"due"}],"usage":{"input_tokens":10,"output_tokens":1200}}}

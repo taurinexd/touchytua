@@ -34,11 +34,12 @@ public enum SessionReducer {
         // event must not undo a newer transition.
         if sessions[id] != nil, at < session.lastEventAt { return }
         session.lastEventAt = at
+        // Every event carries the inbox credentials: a daemon restarted
+        // mid-session never sees that session's SessionStart again.
+        if let socket = envelope.messagingSocket { session.inboxSocket = socket }
+        if let token = envelope.messagingToken { session.inboxToken = token }
 
         switch name {
-        case "SessionStart":
-            if let socket = envelope.messagingSocket { session.inboxSocket = socket }
-            if let token = envelope.messagingToken { session.inboxToken = token }
         case "UserPromptSubmit":
             session.state = .working
             session.round = Round(startedAt: at)

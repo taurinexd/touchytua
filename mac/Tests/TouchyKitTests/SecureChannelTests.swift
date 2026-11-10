@@ -47,6 +47,39 @@ private struct Pair {
         }
     }
 
+    /// A QR waiting to be scanned must not lock out the phone already paired,
+    /// and a new phone with a valid proof must be able to replace it.
+    @Test func pairedPhoneReconnectsWhilePairingIsPending() throws {
+        let p = Pair()
+        _ = try p.connect(phoneSecret: nil, macSecret: p.secret, knownPhoneKey: p.phoneStatic.publicKey.rawRepresentation)
+    }
+
+    @Test func newPhoneWithProofAcceptedWhileAnotherIsPaired() throws {
+        let p = Pair()
+        let other = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        _ = try p.connect(phoneSecret: p.secret, macSecret: p.secret, knownPhoneKey: other)
+    }
+
+    /// Session keys are bound to the four public keys of the handshake.
+    @Test func keysDependOnTheHandshakeTranscript() {
+        let ikm = Data(repeating: 7, count: 64)
+        let a = Handshake.derive(ikm, secret: nil, info: Handshake.phoneToMac, transcript: Data([1, 2, 3]))
+        let b = Handshake.derive(ikm, secret: nil, info: Handshake.phoneToMac, transcript: Data([1, 2, 4]))
+        #expect(a.withUnsafeBytes { Data($0) } != b.withUnsafeBytes { Data($0) })
+    }
+
+    /// Both sides announce their protocol version before any key exists.
+    @Test func helloAndReplyCarryProtocolVersion() throws {
+        let p = Pair()
+        let pe = Curve25519.KeyAgreement.PrivateKey(), me = Curve25519.KeyAgreement.PrivateKey()
+        let hello = Handshake.phoneHello(phoneStatic: p.phoneStatic, ephemeral: pe, pairingSecret: p.secret)
+        #expect(Handshake.peerVersion(in: hello) == Handshake.protocolVersion)
+        let accepted = try Handshake.macAccept(hello: hello, macStatic: p.macStatic, ephemeral: me,
+                                               expectedSecret: p.secret, knownPhoneKey: nil)
+        #expect(Handshake.peerVersion(in: accepted.reply) == Handshake.protocolVersion)
+        #expect(Handshake.peerVersion(in: Data(#"{"phoneKey":"","ephemeral":""}"#.utf8)) == 1)
+    }
+
     @Test func unknownPhoneRejected() {
         let p = Pair()
         let other = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation

@@ -8,6 +8,7 @@ import TouchyKit
 //   approve|deny <requestId>
 //   answer <requestId> "<question>=<label>"
 //   prompt <sessionId> "<text>"
+//   raw <type>                           send a message type the Mac does not know
 // Global: --via lan|ts (endpoint choice), --key <file> (use another phone key).
 
 // Line-buffered stdout so `watch` output reaches files/pipes immediately.
@@ -120,6 +121,10 @@ func session(_ message: PhoneToMac?, wait: TimeInterval) async {
         do { try await link.send(message) } catch { fail("send: \(error)") }
     }
     let end = Date().addingTimeInterval(wait)
+    // A pending WebSocket receive does not end when its task is cancelled,
+    // so on a quiet link `next(timeout:)` would wait for the next message:
+    // leave at the deadline regardless.
+    DispatchQueue.global().asyncAfter(deadline: .now() + wait) { exit(0) }
     while Date() < end, let m = await link.next(timeout: end.timeIntervalSinceNow) {
         print(describe(m))
         if case .error = m, message != nil { exit(3) }
@@ -149,6 +154,15 @@ case "answer":
 case "prompt":
     guard args.count >= 3 else { fail("usage: prompt <sessionId> \"<text>\"") }
     await session(.prompt(sessionId: args[1], text: args[2]), wait: 2)
+case "raw":
+    guard args.count >= 2 else { fail("usage: raw <type>") }
+    // Not `session`: that exits on the first error, and here the error is
+    // the expected answer; the snapshot after it proves the link survived.
+    let link = await Link(state: loadState(), secret: nil)
+    try? await link.send(.unknown(args[1]))
+    if let reply = await link.next(timeout: 3) { print(describe(reply)) }
+    try? await link.send(.hello(deviceName: "touchytua-client"))
+    if let snapshot = await link.next(timeout: 3), case .snapshot = snapshot { print("still connected: snapshot received") }
 default:
     fail("usage: pair <url> | watch [s] | approve|deny <id> | answer <id> \"q=label\" | prompt <sid> \"text\"")
 }

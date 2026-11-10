@@ -28,3 +28,7 @@ hook-smoke: build
 .PHONY: statusline-smoke
 statusline-smoke: build
 	tests/statusline-smoke.sh mac/.build/debug/touchytua-statusline
+
+.PHONY: daemon-smoke
+daemon-smoke: build
+	tests/daemon-smoke.sh mac/.build/debug/touchytuad mac/.build/debug/touchytua-hook

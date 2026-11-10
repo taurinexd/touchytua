@@ -24,6 +24,8 @@ public struct PhoneRouter: Sendable {
     /// Returns the messages to send back to this phone.
     public func handle(_ message: PhoneToMac) async -> [MacToPhone] {
         switch message {
+        case .unknown:
+            return [.error(code: "unsupported_message")]
         case .hello:
             return [await snapshot()]
         case let .decide(id, allow, text):

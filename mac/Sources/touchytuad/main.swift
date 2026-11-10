@@ -45,7 +45,8 @@ final class ChangeRelay: @unchecked Sendable {
 }
 
 let relay = ChangeRelay()
-let hub = Hub { relay.forward($0) }
+let sessionStore = SessionStore(path: runDir + "/sessions.json")
+let hub = Hub(onChange: { relay.forward($0) }, persist: { sessionStore.save($0) })
 let store = PairingStore(directory: home)
 let router = PhoneRouter(hub: hub) { session, text in try InboxInjector.inject(text: text, into: session) }
 let phoneServer = PhoneServer(store: store, router: router, macName: Host.current().localizedName ?? "Mac")
@@ -58,5 +59,18 @@ do {
 } catch {
     Log.info("cannot start: \(error)")
     exit(1)
+}
+// Bring back the registry of the previous run, then keep dropping the
+// sessions that ended without a SessionEnd (crash, kill, closed terminal):
+// they stop answering on their inbox socket.
+// A Task, not a DispatchSource timer: top-level code is main-actor
+// isolated, and a handler running on another queue traps at runtime.
+let reapSeconds = env["TOUCHYTUA_REAP_SECONDS"].flatMap(Double.init) ?? 60
+Task {
+    await hub.restore(sessionStore.load())
+    while true {
+        await hub.reap { InboxInjector.isReachable($0) ?? true }
+        try? await Task.sleep(nanoseconds: UInt64(reapSeconds * 1e9))
+    }
 }
 dispatchMain()

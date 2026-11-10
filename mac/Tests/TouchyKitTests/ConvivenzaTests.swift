@@ -13,6 +13,17 @@ private func write(_ s: String, _ url: URL) {
     try? Data(s.utf8).write(to: url)
 }
 
+@Suite struct InboundSettingTests {
+    /// With `hold` or `refuse`, Claude Code silently keeps or drops the
+    /// prompts sent from the phone: doctor must be able to say so.
+    @Test func readsCrossSessionInboundFromUserSettings() {
+        let home = tempHome()
+        #expect(ConflictScan.crossSessionInbound(home: home) == nil)
+        write(#"{"crossSessionInbound":"refuse"}"#, home.appendingPathComponent(".claude/settings.json"))
+        #expect(ConflictScan.crossSessionInbound(home: home) == "refuse")
+    }
+}
+
 @Suite struct ConflictScanTests {
     @Test func scanFindsForeignPermissionHook() {
         let home = tempHome()

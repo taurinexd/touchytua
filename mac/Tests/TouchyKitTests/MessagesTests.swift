@@ -30,6 +30,20 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
         }
     }
 
+    /// Plugin and app update separately: a message type one side does not
+    /// know yet must decode (and be ignored), never break the connection.
+    @Test func unknownTypesDecodeAsUnknown() throws {
+        let fromPhone = try JSONDecoder().decode(PhoneToMac.self, from: Data(#"{"t":"teleport","x":1}"#.utf8))
+        #expect(fromPhone == .unknown("teleport"))
+        let fromMac = try JSONDecoder().decode(MacToPhone.self, from: Data(#"{"t":"confetti"}"#.utf8))
+        #expect(fromMac == .unknown("confetti"))
+    }
+
+    @Test func unknownMessageGetsUnsupportedError() async {
+        let router = PhoneRouter(hub: Hub()) { _, _ in }
+        #expect(await router.handle(.unknown("teleport")) == [.error(code: "unsupported_message")])
+    }
+
     @Test func discriminatorIsT() throws {
         let json = String(decoding: try JSONEncoder().encode(PhoneToMac.prompt(sessionId: "s1", text: "x")), as: UTF8.self)
         #expect(json.contains(#""t":"prompt""#))

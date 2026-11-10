@@ -19,6 +19,8 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
     case decide(requestId: String, allow: Bool, message: String?)
     case answer(requestId: String, answers: [String: String])
     case prompt(sessionId: String, text: String)
+    /// A type this build does not know (a newer app): ignored, never fatal.
+    case unknown(String)
 
     private enum Keys: String, CodingKey { case t, deviceName, requestId, allow, message, answers, sessionId, text }
 
@@ -33,13 +35,14 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
                                       answers: try c.decode([String: String].self, forKey: .answers))
         case "prompt": self = .prompt(sessionId: try c.decode(String.self, forKey: .sessionId),
                                       text: try c.decode(String.self, forKey: .text))
-        case let t: throw DecodingError.dataCorruptedError(forKey: .t, in: c, debugDescription: "unknown t \(t)")
+        case let t: self = .unknown(t)
         }
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
+        case let .unknown(t): try c.encode(t, forKey: .t)
         case let .hello(name):
             try c.encode("hello", forKey: .t); try c.encode(name, forKey: .deviceName)
         case let .decide(id, allow, message):
@@ -62,6 +65,8 @@ public enum MacToPhone: Codable, Equatable, Sendable {
     case requestResolved(id: String, by: ResolvedBy)
     case usage(Usage)
     case error(code: String)
+    /// A type this build does not know (a newer plugin): ignored, never fatal.
+    case unknown(String)
 
     private enum Keys: String, CodingKey { case t, sessions, pending, usage, session, id, request, by, code }
 
@@ -78,13 +83,14 @@ public enum MacToPhone: Codable, Equatable, Sendable {
                                                         by: try c.decode(ResolvedBy.self, forKey: .by))
         case "usage": self = .usage(try c.decode(Usage.self, forKey: .usage))
         case "error": self = .error(code: try c.decode(String.self, forKey: .code))
-        case let t: throw DecodingError.dataCorruptedError(forKey: .t, in: c, debugDescription: "unknown t \(t)")
+        case let t: self = .unknown(t)
         }
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: Keys.self)
         switch self {
+        case let .unknown(t): try c.encode(t, forKey: .t)
         case let .snapshot(sessions, pending, usage):
             try c.encode("snapshot", forKey: .t); try c.encode(sessions, forKey: .sessions)
             try c.encode(pending, forKey: .pending); try c.encodeIfPresent(usage, forKey: .usage)

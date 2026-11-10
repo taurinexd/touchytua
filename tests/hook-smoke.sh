@@ -22,10 +22,17 @@ sleep 0.3; kill $NC 2>/dev/null; wait $NC 2>/dev/null
 [ "$out" = '{"a":1}' ] && echo "PASS b (relay)" || { echo "FAIL b: out=$out"; fail=1; }
 /usr/bin/jq -e '.v==1 and .event.hook_event_name=="SessionStart" and .messagingSocket=="/tmp/s.sock" and .messagingToken=="tok" and (.capturedAt|type=="number")' "$TMP/req.json" >/dev/null && echo "PASS b (envelope)" || { echo "FAIL b envelope: $(cat "$TMP/req.json")"; fail=1; }
 
-# (c) non-SessionStart events never carry inbox credentials.
+# (c) every event carries the inbox credentials (a restarted daemon never
+#     sees SessionStart again); a session without an inbox sends none.
 printf '{}\n' | nc -lU "$TMP/e.sock" > "$TMP/req2.json" &
 NC=$!; sleep 0.3
-out=$(echo '{"hook_event_name":"Stop","session_id":"x"}' | CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$TMP/e.sock" "$BIN")
+out=$(echo '{"hook_event_name":"Stop","session_id":"x"}' | CLAUDE_CODE_MESSAGING_SOCKET=/tmp/s.sock CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$TMP/e.sock" "$BIN")
 sleep 0.3; kill $NC 2>/dev/null; wait $NC 2>/dev/null
-[ -z "$out" ] && /usr/bin/jq -e '.messagingToken==null' "$TMP/req2.json" >/dev/null && echo "PASS c (no creds, {} suppressed)" || { echo "FAIL c: out=$out req=$(cat "$TMP/req2.json")"; fail=1; }
+[ -z "$out" ] && /usr/bin/jq -e '.messagingSocket=="/tmp/s.sock" and .messagingToken=="tok"' "$TMP/req2.json" >/dev/null && echo "PASS c (creds on every event, {} suppressed)" || { echo "FAIL c: out=$out req=$(cat "$TMP/req2.json")"; fail=1; }
+
+printf '{}\n' | nc -lU "$TMP/f.sock" > "$TMP/req3.json" &
+NC=$!; sleep 0.3
+echo '{"hook_event_name":"Stop","session_id":"x"}' | env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN TOUCHYTUA_HOOK_SOCKET="$TMP/f.sock" "$BIN" >/dev/null
+sleep 0.3; kill $NC 2>/dev/null; wait $NC 2>/dev/null
+/usr/bin/jq -e '.messagingSocket==null and .messagingToken==null' "$TMP/req3.json" >/dev/null && echo "PASS d (no inbox, no creds)" || { echo "FAIL d: req=$(cat "$TMP/req3.json")"; fail=1; }
 exit $fail

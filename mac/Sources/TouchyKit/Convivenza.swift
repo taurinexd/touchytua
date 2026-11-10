@@ -18,6 +18,14 @@ public struct Conflict: Equatable, Sendable {
 }
 
 public enum ConflictScan {
+    /// The user's `crossSessionInbound` setting, nil when unset. `hold` and
+    /// `refuse` stop prompts sent through the inbox socket.
+    public static func crossSessionInbound(home: URL) -> String? {
+        guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude/settings.json")),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return object["crossSessionInbound"] as? String
+    }
+
     public static func scan(home: URL, projectDir: URL?) -> [Conflict] {
         var found: [Conflict] = []
         let userSettings = readJSON(home.appendingPathComponent(".claude/settings.json"))

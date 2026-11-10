@@ -27,7 +27,7 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
     public var state: SessionState
     public var round: Round?
     public var lastEventAt: Date
-    /// Inbox socket and token from SessionStart; used to inject prompts.
+    /// Inbox socket and token from the hooks; used to inject prompts.
     /// Never sent to the phone.
     public var inboxSocket: String?
     public var inboxToken: String?
@@ -53,11 +53,20 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
         copy.inboxToken = nil
         return copy
     }
+
+    /// True when the phone would show the two the same: everything it
+    /// receives except the timestamp of the last event.
+    public func looksTheSame(as other: Session) -> Bool {
+        var a = forPhone, b = other.forPhone
+        a.lastEventAt = .distantPast
+        b.lastEventAt = .distantPast
+        return a == b
+    }
 }
 
 /// What `touchytua-hook` sends to the daemon: the raw hook payload plus the
-/// capture time (hooks can reach the socket out of order) and, on
-/// SessionStart only, the session's inbox credentials.
+/// capture time (hooks can reach the socket out of order) and the
+/// session's inbox credentials.
 public struct HookEnvelope: Codable, Sendable {
     public let v: Int
     public let capturedAt: Double

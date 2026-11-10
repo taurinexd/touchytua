@@ -45,4 +45,16 @@ private func captureOne(at path: String) -> Task<String, Never> {
                               inboxSocket: "/tmp/does-not-exist-\(getpid()).sock", inboxToken: "t")
         #expect(throws: InboxInjector.Failure.connectFailed) { try InboxInjector.inject(text: "x", into: session) }
     }
+
+    /// Liveness probe for sessions that ended without SessionEnd.
+    @Test func reachabilityFollowsTheSocket() async {
+        let path = NSTemporaryDirectory() + "tt-live-\(getpid()).sock"
+        let server = captureOne(at: path)
+        let alive = Session(id: "s1", title: "t", cwd: "/", state: .done, lastEventAt: Date(), inboxSocket: path, inboxToken: "t")
+        #expect(InboxInjector.isReachable(alive) == true)
+        _ = await server.value
+        #expect(InboxInjector.isReachable(alive) == false)
+        let unknown = Session(id: "s2", title: "t", cwd: "/", state: .done, lastEventAt: Date())
+        #expect(InboxInjector.isReachable(unknown) == nil)
+    }
 }

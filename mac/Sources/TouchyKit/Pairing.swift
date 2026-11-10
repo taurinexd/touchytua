@@ -61,18 +61,38 @@ public struct SessionKeys: Sendable {
 
 /// Connection handshake (spec in docs/protocol.md):
 /// ikm = DH(e_mac, e_phone) || DH(s_mac, s_phone);
-/// key = HKDF-SHA256(ikm, salt: "touchytua-v1" || pairingSecret?, info: direction).
+/// key = HKDF-SHA256(ikm, salt: "touchytua-v1" || pairingSecret?,
+///                    info: direction || the four public keys).
 /// Static-static DH authenticates both ends; ephemerals give forward secrecy.
 /// First pairing additionally proves knowledge of the QR secret.
 public enum Handshake {
+    /// Sent in clear by both sides before any key exists, so that either
+    /// can tell the other is older or newer. Absent means 1.
+    public static let protocolVersion = 1
+
     struct Hello: Codable {
         let phoneKey: Data
         let ephemeral: Data
         let proof: Data?
+        var v: Int? = Handshake.protocolVersion
     }
 
     struct Reply: Codable {
         let ephemeral: Data
+        var v: Int? = Handshake.protocolVersion
+    }
+
+    private struct Versioned: Decodable { let v: Int? }
+
+    /// The protocol version announced in a hello or a reply.
+    public static func peerVersion(in message: Data) -> Int {
+        (try? JSONDecoder().decode(Versioned.self, from: message))?.v ?? 1
+    }
+
+    /// The four public keys of a handshake, in a fixed order; mixed into
+    /// the key derivation so the keys are bound to this exact exchange.
+    static func transcript(macStatic: Data, phoneStatic: Data, macEphemeral: Data, phoneEphemeral: Data) -> Data {
+        macStatic + phoneStatic + macEphemeral + phoneEphemeral
     }
 
     static let phoneToMac = Data("phone->mac".utf8)
@@ -95,29 +115,39 @@ public enum Handshake {
         ephemeral: Curve25519.KeyAgreement.PrivateKey,
         expectedSecret: Data?,
         knownPhoneKey: Data?
-    ) throws -> (reply: Data, keys: SessionKeys, phoneKey: Data) {
+    ) throws -> (reply: Data, keys: SessionKeys, phoneKey: Data, isNewPairing: Bool) {
         guard let h = try? JSONDecoder().decode(Hello.self, from: hello),
               let phoneStaticPub = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: h.phoneKey),
               let phoneEphPub = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: h.ephemeral) else {
             throw HandshakeError.malformed
         }
+        // A hello with a proof is a first pairing and needs the pending QR
+        // secret; one without is a reconnection and needs the paired key.
+        // Deciding on the hello keeps the paired phone working while a QR
+        // waits to be scanned.
         var secretForSalt: Data?
-        if let knownPhoneKey {
-            guard h.phoneKey == knownPhoneKey else { throw HandshakeError.unknownPeer }
-        } else {
-            guard let expectedSecret, let proof = h.proof,
+        if let proof = h.proof {
+            guard let expectedSecret,
                   HMAC<SHA256>.isValidAuthenticationCode(
                       proof, authenticating: h.phoneKey + h.ephemeral, using: SymmetricKey(data: expectedSecret))
             else { throw HandshakeError.badSecret }
             secretForSalt = expectedSecret
+        } else {
+            guard let knownPhoneKey else {
+                throw expectedSecret == nil ? HandshakeError.unknownPeer : HandshakeError.badSecret
+            }
+            guard h.phoneKey == knownPhoneKey else { throw HandshakeError.unknownPeer }
         }
         let ikm = try ephemeral.sharedSecretFromKeyAgreement(with: phoneEphPub).raw
             + macStatic.sharedSecretFromKeyAgreement(with: phoneStaticPub).raw
+        let bound = transcript(
+            macStatic: macStatic.publicKey.rawRepresentation, phoneStatic: h.phoneKey,
+            macEphemeral: ephemeral.publicKey.rawRepresentation, phoneEphemeral: h.ephemeral)
         let keys = SessionKeys(
-            send: derive(ikm, secret: secretForSalt, info: macToPhone),
-            receive: derive(ikm, secret: secretForSalt, info: phoneToMac))
+            send: derive(ikm, secret: secretForSalt, info: macToPhone, transcript: bound),
+            receive: derive(ikm, secret: secretForSalt, info: phoneToMac, transcript: bound))
         let reply = try JSONEncoder().encode(Reply(ephemeral: ephemeral.publicKey.rawRepresentation))
-        return (reply, keys, h.phoneKey)
+        return (reply, keys, h.phoneKey, secretForSalt != nil)
     }
 
     public static func phoneFinish(
@@ -134,20 +164,23 @@ public enum Handshake {
         }
         let ikm = try ephemeral.sharedSecretFromKeyAgreement(with: macEph).raw
             + phoneStatic.sharedSecretFromKeyAgreement(with: macStatic).raw
+        let bound = transcript(
+            macStatic: macKey, phoneStatic: phoneStatic.publicKey.rawRepresentation,
+            macEphemeral: r.ephemeral, phoneEphemeral: ephemeral.publicKey.rawRepresentation)
         return SessionKeys(
-            send: derive(ikm, secret: pairingSecret, info: phoneToMac),
-            receive: derive(ikm, secret: pairingSecret, info: macToPhone))
+            send: derive(ikm, secret: pairingSecret, info: phoneToMac, transcript: bound),
+            receive: derive(ikm, secret: pairingSecret, info: macToPhone, transcript: bound))
     }
 
     static func proofFor(secret: Data, phoneKey: Data, ephemeral: Data) -> Data {
         Data(HMAC<SHA256>.authenticationCode(for: phoneKey + ephemeral, using: SymmetricKey(data: secret)))
     }
 
-    static func derive(_ ikm: Data, secret: Data?, info: Data) -> SymmetricKey {
+    static func derive(_ ikm: Data, secret: Data?, info: Data, transcript: Data) -> SymmetricKey {
         HKDF<SHA256>.deriveKey(
             inputKeyMaterial: SymmetricKey(data: ikm),
             salt: Data("touchytua-v1".utf8) + (secret ?? Data()),
-            info: info, outputByteCount: 32)
+            info: info + transcript, outputByteCount: 32)
     }
 }
 

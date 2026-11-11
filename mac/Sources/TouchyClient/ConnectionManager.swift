@@ -23,6 +23,12 @@ public final class ConnectionManager {
         public var connectTimeout: Duration = .seconds(3)
         /// Pause after each failed round; the last value repeats.
         public var backoff: [Duration] = [1, 2, 4, 8, 15].map(Duration.seconds)
+        /// How long pairing keeps trying before it reports the Mac unreachable.
+        /// The first connection makes iOS ask for Local Network access, and
+        /// nothing gets through until the person has answered.
+        public var pairingPatience: Duration = .seconds(30)
+        /// Pause between two pairing rounds.
+        public var pairingRetry: Duration = .seconds(1)
         public var pause: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
         public init() {}
@@ -38,7 +44,8 @@ public final class ConnectionManager {
     public static let promptNotDeliveredMessage = "That session can't receive prompts right now."
 
     public static func unreachableMessage(_ macName: String) -> String {
-        "Can't reach \(macName). Join the same Wi-Fi, or turn on Tailscale on both."
+        "Can't reach \(macName). Join the same Wi-Fi, or turn on Tailscale on both. "
+            + "In Settings, check that touchytua is allowed to use the Local Network."
     }
 
     public private(set) var status: ConnectionStatus
@@ -56,6 +63,8 @@ public final class ConnectionManager {
     @ObservationIgnored private var link: PhoneLink?
     /// Bumped by `stop`; work started before it must not touch the state.
     @ObservationIgnored private var epoch = 0
+    /// True while `pair` is trying to reach the Mac.
+    @ObservationIgnored private var pairing = false
 
     public init(store: any SecretStore, deviceName: String, timing: Timing = Timing(), dial: @escaping Dial) {
         self.store = store
@@ -71,8 +80,10 @@ public final class ConnectionManager {
 
     /// Connects to the paired Mac and keeps reconnecting until `stop`.
     public func start() {
-        guard runner == nil else { return }
+        guard runner == nil, !pairing else { return }
         guard let record = store.pairings().first else {
+            // A pairing error stays on screen until the next attempt.
+            if case .failed = status { return }
             status = .unpaired
             return
         }
@@ -84,6 +95,7 @@ public final class ConnectionManager {
     /// Hangs up. `start` connects again.
     public func stop() {
         epoch += 1
+        pairing = false
         runner?.cancel()
         runner = nil
         if let link {
@@ -104,8 +116,18 @@ public final class ConnectionManager {
         stop()
         let mine = epoch
         status = .connecting
+        pairing = true
+        defer { if mine == epoch { pairing = false } }
         let record = PairingRecord(macName: payload.macName, macKey: payload.macKey, endpoints: payload.endpoints)
-        let outcome = await reach(record, secret: payload.secret)
+        // An address that does not answer leaves the QR secret unused, so
+        // trying again is safe.
+        let deadline = ContinuousClock.now + timing.pairingPatience
+        var outcome = await reach(record, secret: payload.secret)
+        while case .unreachable = outcome, mine == epoch, ContinuousClock.now < deadline {
+            try? await timing.pause(timing.pairingRetry)
+            guard mine == epoch else { break }
+            outcome = await reach(record, secret: payload.secret)
+        }
         guard mine == epoch else {
             if case let .connected(link, _) = outcome { await link.close() }
             return

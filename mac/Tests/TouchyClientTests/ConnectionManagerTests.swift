@@ -23,6 +23,23 @@ final class Pauses: @unchecked Sendable {
     func add(_ pause: Duration) { lock.withLock { asked.append(pause) } }
 }
 
+/// Holds callers until it is opened.
+actor Gate {
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if isOpen { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiting.forEach { $0.resume() }
+        waiting = []
+    }
+}
+
 @MainActor @Suite struct ConnectionManagerTests {
     let lan = "lan:192.168.1.20:47311"
     let ts = "ts:mac.tail1234.ts.net:47311"
@@ -94,6 +111,77 @@ final class Pauses: @unchecked Sendable {
         #expect(manager.status == .failed(ConnectionManager.unreachableMessage("Studio")))
         #expect(network.dialed == [lan, ts])
         #expect(store.pairings().isEmpty)
+    }
+
+    /// The first connection makes iOS ask for Local Network access; until the
+    /// person answers, nothing reaches the Mac.
+    @Test func pairingKeepsTryingUntilTheNetworkLetsItThrough() async {
+        var mac = FakeMac()
+        mac.pendingSecret = secret
+        let payload = PairingPayload(v: 1, macKey: mac.publicKey, secret: secret, endpoints: [lan], macName: "Studio")
+        var timing = ConnectionManager.Timing.fast
+        timing.pairingPatience = .seconds(5)
+        timing.pause = { [network, lan, mac] _ in network.set(lan, .mac(mac)) }
+        let manager = manager(timing)
+        defer { manager.stop() }
+
+        await manager.pair(url: payload.url())
+
+        #expect(manager.status == .connected(via: "Wi-Fi"))
+        #expect(network.dialed == [lan, lan])
+    }
+
+    /// Answering a system alert makes the app active again, which calls `start`.
+    @Test func comingBackToTheAppDoesNotInterruptPairing() async {
+        var mac = FakeMac()
+        mac.pendingSecret = secret
+        let payload = PairingPayload(v: 1, macKey: mac.publicKey, secret: secret, endpoints: [lan], macName: "Studio")
+        let gate = Gate()
+        var timing = ConnectionManager.Timing.fast
+        timing.pairingPatience = .seconds(5)
+        timing.pause = { [network, lan, mac] _ in
+            await gate.wait()
+            network.set(lan, .mac(mac))
+        }
+        let manager = manager(timing)
+        defer { manager.stop() }
+        let pairing = Task { await manager.pair(url: payload.url()) }
+        #expect(await eventually { network.dialed.count == 1 })
+
+        manager.start()
+        #expect(manager.status == .connecting)
+
+        await gate.open()
+        await pairing.value
+        #expect(manager.status == .connected(via: "Wi-Fi"))
+    }
+
+    @Test func comingBackToTheAppKeepsThePairingErrorOnScreen() async {
+        let payload = PairingPayload(v: 1, macKey: FakeMac().publicKey, secret: secret, endpoints: [lan], macName: "Studio")
+        let manager = manager()
+        await manager.pair(url: payload.url())
+
+        manager.start()
+
+        #expect(manager.status == .failed(ConnectionManager.unreachableMessage("Studio")))
+    }
+
+    @Test func leavingTheAppStopsPairing() async {
+        let payload = PairingPayload(v: 1, macKey: FakeMac().publicKey, secret: secret, endpoints: [lan], macName: "Studio")
+        let gate = Gate()
+        var timing = ConnectionManager.Timing.fast
+        timing.pairingPatience = .seconds(5)
+        timing.pause = { _ in await gate.wait() }
+        let manager = manager(timing)
+        let pairing = Task { await manager.pair(url: payload.url()) }
+        #expect(await eventually { network.dialed.count == 1 })
+
+        manager.stop()
+        await gate.open()
+        await pairing.value
+
+        #expect(network.dialed == [lan])
+        #expect(manager.status == .unpaired)
     }
 
     @Test func textThatIsNotAPairingCodeIsExplained() async {
@@ -323,6 +411,7 @@ extension ConnectionManager.Timing {
         var timing = ConnectionManager.Timing()
         timing.connectTimeout = .milliseconds(100)
         timing.backoff = [.milliseconds(5)]
+        timing.pairingPatience = .zero
         return timing
     }
 }

@@ -26,6 +26,17 @@ import Testing
         return path
     }
 
+    /// Claude Code writes one line per content block, and each repeats the
+    /// usage of the whole message.
+    @Test func aMessageWrittenAsSeveralLinesCountsOnce() {
+        func block(_ kind: String) -> String {
+            #"{"type":"assistant","timestamp":"2026-11-11T16:19:40.000Z","message":{"id":"msg_1","content":[{"type":"\#(kind)"}],"usage":{"output_tokens":872}}}"#
+        }
+        let next = #"{"type":"assistant","timestamp":"2026-11-11T16:19:50.000Z","message":{"id":"msg_2","content":[],"usage":{"output_tokens":30}}}"#
+        let path = write([block("thinking"), block("text"), next])
+        #expect(RoundStats.outputTokens(transcriptPath: path, since: .distantPast) == 902)
+    }
+
     /// Transcripts reach hundreds of MB: only the end of the file is read,
     /// growing the window until it reaches a line older than the round.
     @Test func windowGrowsUntilItCoversTheRound() {

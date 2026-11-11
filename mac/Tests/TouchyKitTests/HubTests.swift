@@ -67,6 +67,60 @@ private func env(
     }
 }
 
+@Suite struct HubLateTranscriptTests {
+    private func line(_ id: String, _ stamp: String, tokens: Int) -> String {
+        #"{"type":"assistant","timestamp":"\#(stamp)","message":{"id":"\#(id)","content":[],"usage":{"output_tokens":\#(tokens)}}}"# + "\n"
+    }
+
+    /// The last message of a round can reach the transcript after the Stop hook.
+    @Test func tokensWrittenAfterTheStopAreCountedOnASecondLook() async throws {
+        let path = NSTemporaryDirectory() + "tt-late-" + UUID().uuidString + ".jsonl"
+        try Data(line("msg_1", "2026-11-11T16:13:59.000Z", tokens: 154).utf8).write(to: URL(fileURLWithPath: path))
+        let changes = Changes()
+        let looks = AsyncStream<Void>.makeStream()
+        let hub = Hub(onChange: { changes.add($0) }, secondLooks: [.seconds(1)]) { _ in
+            for await _ in looks.stream { break }
+        }
+        let start = ISO8601DateFormatter().date(from: "2026-11-11T16:13:56Z")!.timeIntervalSince1970
+        _ = await hub.handle(env("UserPromptSubmit", at: start))
+        _ = await hub.handle(env("Stop", at: start + 227, extra: ["transcript_path": .string(path)]))
+        #expect(await hub.sessions["s1"]?.round?.tokens == 154)
+
+        let handle = try #require(FileHandle(forWritingAtPath: path))
+        handle.seekToEndOfFile()
+        handle.write(Data(line("msg_2", "2026-11-11T16:17:42.000Z", tokens: 5).utf8))
+        try handle.close()
+        looks.continuation.yield()
+
+        for _ in 0..<400 where await hub.sessions["s1"]?.round?.tokens != 159 {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(await hub.sessions["s1"]?.round?.tokens == 159)
+        #expect(changes.sessionTokens.last == 159)
+    }
+
+    /// A new round has started by the time of the second look: leave it alone.
+    @Test func aSecondLookDoesNotTouchANewerRound() async throws {
+        let path = NSTemporaryDirectory() + "tt-late-" + UUID().uuidString + ".jsonl"
+        try Data(line("msg_1", "2026-11-11T16:13:59.000Z", tokens: 154).utf8).write(to: URL(fileURLWithPath: path))
+        let looks = AsyncStream<Void>.makeStream()
+        let done = AsyncStream<Void>.makeStream()
+        let hub = Hub(secondLooks: [.seconds(1)]) { _ in
+            for await _ in looks.stream { break }
+            done.continuation.yield()
+        }
+        let start = ISO8601DateFormatter().date(from: "2026-11-11T16:13:56Z")!.timeIntervalSince1970
+        _ = await hub.handle(env("UserPromptSubmit", at: start))
+        _ = await hub.handle(env("Stop", at: start + 10, extra: ["transcript_path": .string(path)]))
+        _ = await hub.handle(env("UserPromptSubmit", at: start + 20))
+        looks.continuation.yield()
+        for await _ in done.stream { break }
+        try await Task.sleep(for: .milliseconds(30))
+
+        #expect(await hub.sessions["s1"]?.round?.tokens == nil)
+    }
+}
+
 private final class Changes: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [Hub.Change] = []
@@ -74,6 +128,10 @@ private final class Changes: @unchecked Sendable {
     var removed: [String] {
         lock.lock(); defer { lock.unlock() }
         return items.compactMap { if case let .sessionRemoved(id) = $0 { return id } else { return nil } }
+    }
+    var sessionTokens: [Int?] {
+        lock.lock(); defer { lock.unlock() }
+        return items.compactMap { if case let .session(session) = $0 { return .some(session.round?.tokens) } else { return nil } }
     }
     var sessionUpdates: Int {
         lock.lock(); defer { lock.unlock() }

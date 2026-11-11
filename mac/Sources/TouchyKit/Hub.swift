@@ -21,15 +21,23 @@ public actor Hub {
     public let pending: PendingRequests
     private let onChange: @Sendable (Change) -> Void
     private let persist: (@Sendable ([StoredSession]) -> Void)?
+    /// When to read the transcript again after a round ends: its last
+    /// message can be written after the Stop hook has run.
+    private let secondLooks: [Duration]
+    private let pause: @Sendable (Duration) async -> Void
 
     /// `persist` receives the whole registry, credentials included, each
     /// time something worth keeping across a restart changes.
     public init(
         onChange: @escaping @Sendable (Change) -> Void = { _ in },
-        persist: (@Sendable ([StoredSession]) -> Void)? = nil
+        persist: (@Sendable ([StoredSession]) -> Void)? = nil,
+        secondLooks: [Duration] = [.seconds(1), .seconds(4)],
+        pause: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.onChange = onChange
         self.persist = persist
+        self.secondLooks = secondLooks
+        self.pause = pause
         pending = PendingRequests { onChange(.pending($0)) }
     }
 
@@ -136,11 +144,36 @@ public actor Hub {
               let path = envelope.event["transcript_path"]?.stringValue else { return }
         if let start = session.round?.startedAt {
             session.round?.tokens = RoundStats.outputTokens(transcriptPath: path, since: start)
+            lookAgain(id, path: path, roundStartedAt: start)
         }
         let peek = TranscriptPeek.read(path: path)
         if let title = peek.aiTitle ?? peek.sessionName ?? peek.firstUserPrompt, !title.isEmpty {
             session.title = title
         }
         sessions[id] = session
+    }
+
+    private func lookAgain(_ id: String, path: String, roundStartedAt start: Date) {
+        let (delays, pause) = (secondLooks, pause)
+        Task { [weak self] in
+            for delay in delays {
+                await pause(delay)
+                guard await self?.recount(id, path: path, roundStartedAt: start) == true else { return }
+            }
+        }
+    }
+
+    /// False once the round is no longer the session's latest finished one.
+    private func recount(_ id: String, path: String, roundStartedAt start: Date) -> Bool {
+        guard var session = sessions[id], session.round?.startedAt == start, session.round?.endedAt != nil else {
+            return false
+        }
+        if let tokens = RoundStats.outputTokens(transcriptPath: path, since: start), tokens != session.round?.tokens {
+            session.round?.tokens = tokens
+            sessions[id] = session
+            onChange(.session(session))
+            save()
+        }
+        return true
     }
 }

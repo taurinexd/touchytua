@@ -27,7 +27,9 @@ public enum RoundStats {
                 // The window opens mid-line: drop that truncated line.
                 data = data.firstIndex(of: 0x0A).map { data.suffix(from: $0 + 1) } ?? Data()
             }
-            var total = 0, reachedBeforeRound = false
+            // One line per content block, each repeating its message's usage:
+            // a message counts once, whatever number of lines it takes.
+            var total = 0, byMessage: [String: Int] = [:], reachedBeforeRound = false
             for line in data.split(separator: 0x0A) {
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                       let stamp = object["timestamp"] as? String, let date = iso.date(from: stamp) else { continue }
@@ -36,11 +38,15 @@ public enum RoundStats {
                       let message = object["message"] as? [String: Any],
                       let usage = message["usage"] as? [String: Any],
                       let tokens = usage["output_tokens"] as? Int else { continue }
-                total += tokens
+                if let id = message["id"] as? String {
+                    byMessage[id] = tokens
+                } else {
+                    total += tokens
+                }
             }
             if reachedBeforeRound || start == 0 {
                 onRead(reads)
-                return total
+                return total + byMessage.values.reduce(0, +)
             }
             window = window > size / 4 ? size : window * 4
         }

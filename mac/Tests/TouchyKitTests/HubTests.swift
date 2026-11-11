@@ -64,6 +64,56 @@ private func env(_ name: String, session: String = "s1", at: Double, extra: [Str
     }
 }
 
+private final class Changes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [Hub.Change] = []
+    func add(_ c: Hub.Change) { lock.lock(); items.append(c); lock.unlock() }
+    var removed: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return items.compactMap { if case let .sessionRemoved(id) = $0 { return id } else { return nil } }
+    }
+    var sessionUpdates: Int {
+        lock.lock(); defer { lock.unlock() }
+        return items.filter { if case .session = $0 { return true } else { return false } }.count
+    }
+}
+
+@Suite struct HubChangeTests {
+    /// Tool calls inside one turn do not change what the phone shows:
+    /// they must not be re-sent.
+    @Test func eventsThatChangeNothingVisibleAreNotEmitted() async {
+        let changes = Changes()
+        let hub = Hub { changes.add($0) }
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        #expect(changes.sessionUpdates == 1)
+        _ = await hub.handle(env("PreToolUse", at: 2, extra: ["tool_name": .string("Bash")]))
+        _ = await hub.handle(env("PostToolUse", at: 3, extra: ["tool_name": .string("Bash")]))
+        #expect(changes.sessionUpdates == 1)
+        _ = await hub.handle(env("Stop", at: 4))
+        #expect(changes.sessionUpdates == 2)
+    }
+}
+
+@Suite struct HubReapTests {
+    /// A session that died without SessionEnd (crash, kill, closed terminal)
+    /// must leave the list, and its open requests with it.
+    @Test func deadSessionsAreRemovedWithTheirRequests() async throws {
+        let changes = Changes()
+        let hub = Hub { changes.add($0) }
+        _ = await hub.handle(env("UserPromptSubmit", session: "alive", at: 1))
+        _ = await hub.handle(env("UserPromptSubmit", session: "dead", at: 1))
+        let task = Task { await hub.handle(env("PermissionRequest", session: "dead", at: 2, extra: ["tool_name": .string("Bash"), "tool_input": .object([:])])) }
+        for _ in 0..<200 where await hub.pending.openRequests.isEmpty { try await Task.sleep(nanoseconds: 5_000_000) }
+
+        await hub.reap { $0.id != "dead" }
+
+        #expect(await hub.sessions.keys.sorted() == ["alive"])
+        #expect(await hub.pending.openRequests.isEmpty)
+        #expect(await task.value == PendingRequests.emptyReply)
+        #expect(changes.removed == ["dead"])
+    }
+}
+
 @Suite struct HubUsageTests {
     private func usageEnv(_ session: String, _ statusline: String) -> HookEnvelope {
         let input = try! JSONDecoder().decode(JSONValue.self, from: Data(statusline.utf8))

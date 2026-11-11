@@ -16,20 +16,19 @@ let socketPath = env["TOUCHYTUA_HOOK_SOCKET"]
 let input = FileHandle.standardInput.readDataToEndOfFile()
 let payload = (try? JSONSerialization.jsonObject(with: input)) as? [String: Any] ?? [:]
 
-// 2. Build the envelope. Inbox credentials travel on SessionStart only:
-//    the daemon needs them once, and every extra copy is exposure.
+// 2. Build the envelope. Inbox credentials travel with every event: a
+//    daemon restarted mid-session never sees that session's SessionStart
+//    again. They stay on this user's 0600 Unix socket.
 var envelope: [String: Any] = [
     "v": 1,
     "capturedAt": Date().timeIntervalSince1970,
     "event": payload,
 ]
-if payload["hook_event_name"] as? String == "SessionStart" {
-    if let socket = env["CLAUDE_CODE_MESSAGING_SOCKET"], !socket.isEmpty {
-        envelope["messagingSocket"] = socket
-    }
-    if let token = env["CLAUDE_CODE_MESSAGING_TOKEN"], !token.isEmpty {
-        envelope["messagingToken"] = token
-    }
+if let socket = env["CLAUDE_CODE_MESSAGING_SOCKET"], !socket.isEmpty {
+    envelope["messagingSocket"] = socket
+}
+if let token = env["CLAUDE_CODE_MESSAGING_TOKEN"], !token.isEmpty {
+    envelope["messagingToken"] = token
 }
 guard var data = try? JSONSerialization.data(withJSONObject: envelope) else { exit(0) }
 data.append(0x0A)

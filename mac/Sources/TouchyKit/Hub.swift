@@ -17,10 +17,25 @@ public actor Hub {
     private var costBySession: [String: Double] = [:]
     public let pending: PendingRequests
     private let onChange: @Sendable (Change) -> Void
+    private let persist: (@Sendable ([Session]) -> Void)?
 
-    public init(onChange: @escaping @Sendable (Change) -> Void = { _ in }) {
+    /// `persist` receives the whole registry, credentials included, each
+    /// time something worth keeping across a restart changes.
+    public init(
+        onChange: @escaping @Sendable (Change) -> Void = { _ in },
+        persist: (@Sendable ([Session]) -> Void)? = nil
+    ) {
         self.onChange = onChange
+        self.persist = persist
         pending = PendingRequests { onChange(.pending($0)) }
+    }
+
+    /// Sessions saved by a previous run. Live ones win: an event received
+    /// since startup is newer than anything on disk.
+    public func restore(_ saved: [Session]) {
+        for session in saved where sessions[session.id] == nil {
+            sessions[session.id] = session
+        }
     }
 
     /// Handles one hook envelope and returns the line the hook prints.
@@ -35,13 +50,20 @@ public actor Hub {
         let settled = PendingPolicy.requestsToClose(after: envelope, open: await pending.openRequests)
         await pending.close(ids: settled, by: .terminal)
 
-        let existed = sessions[sessionId] != nil
+        let before = sessions[sessionId]
+        let existed = before != nil
         SessionReducer.apply(envelope, to: &sessions)
         if name == "Stop" || name == "StopFailure" { enrichRound(sessionId, envelope) }
         if let session = sessions[sessionId] {
-            onChange(.session(session.forPhone))
+            // Most events (every tool call) change nothing the phone shows.
+            let visible = before.map { !session.looksTheSame(as: $0) } ?? true
+            if visible { onChange(.session(session.forPhone)) }
+            if visible || session.inboxSocket != before?.inboxSocket || session.inboxToken != before?.inboxToken {
+                persist?(Array(sessions.values))
+            }
         } else if existed {
             onChange(.sessionRemoved(id: sessionId))
+            persist?(Array(sessions.values))
         }
 
         guard name == "PermissionRequest" else { return PendingRequests.emptyReply }
@@ -53,6 +75,17 @@ public actor Hub {
             createdAt: Date(timeIntervalSince1970: envelope.capturedAt)
         )
         return await pending.open(request)
+    }
+
+    /// Drops the sessions `isAlive` rejects: those that ended without a
+    /// SessionEnd (crash, kill, closed terminal). Their requests close too.
+    public func reap(isAlive: @Sendable (Session) -> Bool) async {
+        for id in sessions.values.filter({ !isAlive($0) }).map(\.id) {
+            sessions[id] = nil
+            await pending.cancelAll(sessionId: id, by: .terminal)
+            onChange(.sessionRemoved(id: id))
+            persist?(Array(sessions.values))
+        }
     }
 
     /// The phone approved or denied. False when the request is no longer open.

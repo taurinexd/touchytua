@@ -6,7 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -16,7 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -26,7 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -36,7 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -46,7 +50,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -56,7 +61,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -66,7 +72,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           }
         ]
       }
@@ -86,11 +93,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\""
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua-hook\"",
+            "async": true
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua\" daemon --ensure"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/touchytua\" daemon --ensure",
+            "async": true
           }
         ]
       }

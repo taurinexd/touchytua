@@ -4,7 +4,8 @@ import TouchyKit
 
 // touchytua — user-facing CLI shipped in the plugin's bin/ (on Claude's
 // PATH while the plugin is enabled).
-//   touchytua pair [--no-open]        pair a phone (QR), install the LaunchAgent
+//   touchytua pair [--no-open] [--terminal]
+//                                     pair a phone (QR), install the LaunchAgent
 //   touchytua doctor                  conflicts, daemon and pairing status
 //   touchytua daemon --ensure         start the daemon if it is not running
 //   touchytua statusline install|uninstall
@@ -77,11 +78,22 @@ func startDetachedDaemon() {
 
 func launchAgentDomain() -> String { "gui/\(getuid())" }
 
+/// Unloads and loads the LaunchAgent. Needed whenever the daemon binary
+/// changed: `kickstart -k` on a loaded job whose executable was replaced
+/// gets the first spawn killed (OS_REASON_CODESIGNING) and launchd only
+/// retries about ten seconds later.
+func reloadLaunchAgent() {
+    run("/bin/launchctl", ["bootout", "\(launchAgentDomain())/\(Setup.launchAgentLabel)"])
+    run("/bin/launchctl", ["bootstrap", launchAgentDomain(), plistPath])
+}
+
 func ensureDaemon() {
     let changed = installBinaries()
     if FileManager.default.fileExists(atPath: plistPath) {
-        if changed || daemonPid() == nil {
-            run("/bin/launchctl", ["kickstart", "-k", "\(launchAgentDomain())/\(Setup.launchAgentLabel)"])
+        if changed {
+            reloadLaunchAgent()
+        } else if daemonPid() == nil {
+            run("/bin/launchctl", ["kickstart", "\(launchAgentDomain())/\(Setup.launchAgentLabel)"])
         }
     } else if daemonPid() == nil {
         startDetachedDaemon()
@@ -99,7 +111,7 @@ func printConflicts() {
     for c in found { say("  • [\(c.source)] \(c.event) \(c.matcher == "*" ? "" : "(\(c.matcher)) ")→ \(c.command)") }
 }
 
-func pair(openPNG: Bool) throws {
+func pair(openPNG: Bool, printQR: Bool) throws {
     installBinaries()
     let store = PairingStore(directory: home)
     let tsName: String? = {
@@ -119,21 +131,24 @@ func pair(openPNG: Bool) throws {
     if let pid = daemonPid() { kill(pid, SIGTERM); usleep(300_000) }
     try Setup.launchAgentPlist(daemonPath: binDir + "/touchytuad", logPath: logPath)
         .write(to: URL(fileURLWithPath: plistPath))
-    run("/bin/launchctl", ["bootout", "\(launchAgentDomain())/\(Setup.launchAgentLabel)"])
-    run("/bin/launchctl", ["bootstrap", launchAgentDomain(), plistPath])
+    reloadLaunchAgent()
 
-    say("Scansiona questo QR con l'app touchytua:\n")
-    say(Setup.terminalQR(url) ?? "(QR non disponibile)")
-    say("\nURL: \(url)")
+    // The QR carries a pairing secret. It goes to an image, not to stdout:
+    // whatever a command prints inside Claude Code lands in the transcript.
+    let minutes = Int(PairingStore.secretLifetime / 60)
+    if let png = qrPNG(url) {
+        let path = store.qrImagePath
+        FileManager.default.createFile(atPath: path, contents: png, attributes: [.posixPermissions: 0o600])
+        say("QR pronto: \(path)")
+        say("Scansionalo con l'app touchytua entro \(minutes) minuti. Vale una volta sola; il file viene cancellato dopo l'uso.")
+        if openPNG { run("/usr/bin/open", [path]) }
+    }
+    if printQR {
+        say("\n" + (Setup.terminalQR(url) ?? "(QR non disponibile)"))
+    }
     say("Indirizzi: \(endpoints.joined(separator: ", "))")
     if tsName == nil {
         say("Per usare touchytua fuori casa installa Tailscale su Mac e iPhone, poi rilancia /pair.")
-    }
-    if let png = qrPNG(url) {
-        let path = home + "/pair.png"
-        try? png.write(to: URL(fileURLWithPath: path))
-        say("QR salvato anche in \(path)")
-        if openPNG { run("/usr/bin/open", [path]) }
     }
     say("")
     printConflicts()
@@ -150,11 +165,17 @@ func qrPNG(_ text: String) -> Data? {
 func doctor() {
     if let pid = daemonPid() { say("Daemon: attivo (pid \(pid))") } else { say("Daemon: non attivo") }
     say("Avvio automatico: \(FileManager.default.fileExists(atPath: plistPath) ? "LaunchAgent installato" : "non installato (esegui /pair)")")
-    let state = PairingStore(directory: home).load()
+    let store = PairingStore(directory: home)
+    let state = store.load()
+    let waiting = store.activeSecret(now: Date()) != nil ? " — QR in attesa di scansione" : ""
     if state.phoneKey != nil {
-        say("Telefono: accoppiato\(state.deviceName.map { " (\($0))" } ?? "")")
+        say("Telefono: accoppiato\(state.deviceName.map { " (\($0))" } ?? "")\(waiting)")
     } else {
-        say("Telefono: non accoppiato\(state.pendingSecret != nil ? " — QR in attesa di scansione" : "")")
+        say("Telefono: non accoppiato\(waiting)")
+    }
+    if let inbound = ConflictScan.crossSessionInbound(home: URL(fileURLWithPath: NSHomeDirectory())),
+       inbound != "accept" {
+        say("Attenzione: crossSessionInbound=\(inbound) nelle impostazioni di Claude Code. I prompt inviati dal telefono vengono \(inbound == "refuse" ? "scartati" : "trattenuti").")
     }
     let previous = StatusLineChain.previousCommand(stateDirectory: home)
     say("Statusline in catena: \(FileManager.default.fileExists(atPath: home + "/statusline-previous.json") ? "installata\(previous.map { " (precedente: \($0))" } ?? "")" : "non installata")")
@@ -179,12 +200,12 @@ func statusLine(_ action: String) throws {
 
 do {
     switch args.first {
-    case "pair": try pair(openPNG: !args.contains("--no-open"))
+    case "pair": try pair(openPNG: !args.contains("--no-open"), printQR: args.contains("--terminal"))
     case "doctor": doctor()
     case "daemon" where args.contains("--ensure"): ensureDaemon()
     case "statusline": try statusLine(args.dropFirst().first ?? "")
     default:
-        say("uso: touchytua pair [--no-open] | doctor | daemon --ensure | statusline install|uninstall")
+        say("uso: touchytua pair [--no-open] [--terminal] | doctor | daemon --ensure | statusline install|uninstall")
         exit(2)
     }
 } catch {

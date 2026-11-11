@@ -41,4 +41,23 @@ import Testing
         #expect(state.deviceName == "iPhone")
         #expect(state.pendingSecret == nil)
     }
+
+    /// The QR secret is short-lived: an unscanned QR must not stay valid forever.
+    @Test func pendingSecretExpires() throws {
+        let store = PairingStore(directory: tempDir())
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let payload = try store.beginPairing(endpoints: [], macName: "Mac", now: t0)
+        #expect(store.activeSecret(now: t0.addingTimeInterval(PairingStore.secretLifetime - 1)) == payload.secret)
+        #expect(store.activeSecret(now: t0.addingTimeInterval(PairingStore.secretLifetime + 1)) == nil)
+    }
+
+    @Test func completePairingDeletesTheQRImage() throws {
+        let dir = tempDir()
+        let store = PairingStore(directory: dir)
+        _ = try store.beginPairing(endpoints: [], macName: "Mac")
+        FileManager.default.createFile(atPath: store.qrImagePath, contents: Data([1]))
+        store.completePairing(phoneKey: Data(repeating: 3, count: 32), deviceName: nil)
+        #expect(!FileManager.default.fileExists(atPath: store.qrImagePath))
+        #expect(store.activeSecret(now: Date()) == nil)
+    }
 }

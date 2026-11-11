@@ -108,4 +108,13 @@ private func envelope(
         #expect(env.event["arr"] == .array([.number(1), .string("a")]))
         #expect(env.messagingSocket == nil)
     }
+
+    /// A daemon restarted mid-session never sees SessionStart again: the
+    /// credentials must be picked up from whatever event comes next.
+    @Test func inboxCredentialsFromLaterEventAreStored() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 100, socket: "/tmp/cc-socks/9.sock", token: "tok9"), to: &sessions)
+        #expect(sessions["s1"]?.inboxSocket == "/tmp/cc-socks/9.sock")
+        #expect(sessions["s1"]?.inboxToken == "tok9")
+    }
 }

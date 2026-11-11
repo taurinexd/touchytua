@@ -183,13 +183,18 @@ final class PhoneConnection: @unchecked Sendable {
 
     private func handle(_ data: Data) {
         guard var channel else { handshake(data); return }
-        guard let plain = try? channel.open(data),
-              let message = try? JSONDecoder().decode(PhoneToMac.self, from: plain) else {
+        guard let plain = try? channel.open(data) else {
             Log.info("phone: dropped undecryptable frame; closing")
             closeTransport()
             return
         }
         self.channel = channel
+        // An authenticated frame this build cannot read is a version gap,
+        // not an attack: answer and keep the connection.
+        guard let message = try? JSONDecoder().decode(PhoneToMac.self, from: plain) else {
+            send(.error(code: "bad_message"))
+            return
+        }
         if case let .hello(name) = message {
             var state = store.load()
             state.deviceName = name
@@ -202,16 +207,14 @@ final class PhoneConnection: @unchecked Sendable {
     }
 
     private func handshake(_ hello: Data) {
-        let state = store.load()
         do {
-            let pairing = state.pendingSecret != nil
             let accepted = try Handshake.macAccept(
                 hello: hello, macStatic: try store.macKey(), ephemeral: Curve25519.KeyAgreement.PrivateKey(),
-                expectedSecret: state.pendingSecret, knownPhoneKey: pairing ? nil : state.phoneKey)
-            if pairing { store.completePairing(phoneKey: accepted.phoneKey, deviceName: nil) }
+                expectedSecret: store.activeSecret(now: Date()), knownPhoneKey: store.load().phoneKey)
+            if accepted.isNewPairing { store.completePairing(phoneKey: accepted.phoneKey, deviceName: nil) }
             channel = SecureChannel(keys: accepted.keys)
             _ = sendFrame(accepted.reply)
-            Log.info("phone: authenticated\(pairing ? " (new pairing)" : "")")
+            Log.info("phone: handshake accepted, protocol v\(Handshake.peerVersion(in: hello))\(accepted.isNewPairing ? " (new pairing)" : "")")
         } catch {
             Log.info("phone: handshake rejected (\(error)); closing")
             closeTransport()

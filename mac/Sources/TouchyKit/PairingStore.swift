@@ -6,11 +6,17 @@ public struct PairingState: Codable, Equatable, Sendable {
     public var deviceName: String?
     /// Set by `touchytua pair`, burned by the first successful handshake.
     public var pendingSecret: Data?
+    /// After this moment the pending secret no longer pairs anything.
+    public var pendingSecretExpiresAt: Date?
 
-    public init(phoneKey: Data? = nil, deviceName: String? = nil, pendingSecret: Data? = nil) {
+    public init(
+        phoneKey: Data? = nil, deviceName: String? = nil,
+        pendingSecret: Data? = nil, pendingSecretExpiresAt: Date? = nil
+    ) {
         self.phoneKey = phoneKey
         self.deviceName = deviceName
         self.pendingSecret = pendingSecret
+        self.pendingSecretExpiresAt = pendingSecretExpiresAt
     }
 }
 
@@ -22,6 +28,21 @@ public final class PairingStore: @unchecked Sendable {
 
     public init(directory: String) {
         self.directory = directory
+    }
+
+    /// How long a QR stays scannable.
+    public static let secretLifetime: TimeInterval = 600
+
+    /// The QR as an image, for `touchytua pair`; deleted once it has been used.
+    public var qrImagePath: String { directory + "/pair.png" }
+
+    /// The pending pairing secret, nil when there is none or it has expired.
+    public func activeSecret(now: Date) -> Data? {
+        let state = load()
+        guard let secret = state.pendingSecret, let expires = state.pendingSecretExpiresAt, now < expires else {
+            return nil
+        }
+        return secret
     }
 
     private var keyPath: String { directory + "/mac-key" }
@@ -49,11 +70,12 @@ public final class PairingStore: @unchecked Sendable {
     }
 
     /// Creates a fresh one-time secret and the payload for the QR.
-    public func beginPairing(endpoints: [String], macName: String) throws -> PairingPayload {
+    public func beginPairing(endpoints: [String], macName: String, now: Date = Date()) throws -> PairingPayload {
         let key = try macKey()
         let secret = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
         var state = load()
         state.pendingSecret = secret
+        state.pendingSecretExpiresAt = now.addingTimeInterval(Self.secretLifetime)
         save(state)
         return PairingPayload(v: 1, macKey: key.publicKey.rawRepresentation, secret: secret,
                               endpoints: endpoints, macName: macName)
@@ -62,6 +84,7 @@ public final class PairingStore: @unchecked Sendable {
     /// v1 pairs one phone: a new pairing replaces the previous phone.
     public func completePairing(phoneKey: Data, deviceName: String?) {
         save(PairingState(phoneKey: phoneKey, deviceName: deviceName, pendingSecret: nil))
+        try? FileManager.default.removeItem(atPath: qrImagePath)
     }
 
     private func write(_ data: Data, to path: String) throws {

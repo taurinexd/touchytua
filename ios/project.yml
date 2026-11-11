@@ -21,9 +21,14 @@ targets:
         product: TouchyClient
       - package: Core
         product: TouchyProtocol
+    # Signing is per developer: ios/Local.xcconfig (not committed) carries the
+    # team and, for a personal team, a bundle id suffix. See Local.xcconfig.example.
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua
+        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua$(TOUCHYTUA_BUNDLE_SUFFIX)
         PRODUCT_NAME: touchytua
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
@@ -63,9 +68,12 @@ targets:
       - path: UITests
     dependencies:
       - target: Touchytua
+    configFiles:
+      Debug: Local.xcconfig
+      Release: Local.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua$(TOUCHYTUA_BUNDLE_SUFFIX).uitests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"

@@ -11,6 +11,7 @@ import XCTest
 ///   shot:<name>            save a screenshot as <name>.png in SHOT_DIR
 ///   tap:<text>             tap the first element whose label contains <text>
 ///   swipeRight:<text> / swipeLeft:<text>
+///   scrollDown / scrollUp  drag the content one screenful
 ///   type:<text>            type into the focused field
 ///   waitFor:<text>         wait up to 60 s for an element to appear
 ///   waitGone:<text>        wait up to 60 s for it to disappear
@@ -41,6 +42,10 @@ final class DriverTests: XCTestCase {
                 try find(argument, in: app).swipeRight()
             case "swipeLeft":
                 try find(argument, in: app).swipeLeft()
+            case "scrollDown":
+                app.swipeUp()
+            case "scrollUp":
+                app.swipeDown()
             case "type":
                 app.typeText(argument)
             case "waitFor":

@@ -1,0 +1,7 @@
+// Copy to Local.xcconfig (not committed) to run the app on a real iPhone.
+//
+// DEVELOPMENT_TEAM: your Apple team id (developer.apple.com → Membership).
+// TOUCHYTUA_BUNDLE_SUFFIX: a bundle id belongs to one team worldwide, so
+// anyone outside the publishing team needs a suffix of their own, e.g. `.dev`.
+DEVELOPMENT_TEAM =
+TOUCHYTUA_BUNDLE_SUFFIX =

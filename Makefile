@@ -39,7 +39,7 @@ XCODE ?= /Applications/Xcode.app/Contents/Developer
 
 .PHONY: ios ios-build
 ios:
-	cd ios && xcodegen
+	cd ios && { [ -f Local.xcconfig ] || cp Local.xcconfig.example Local.xcconfig; } && xcodegen
 
 # Builds the app and the scripted finger for the Simulator named by SIM (udid).
 ios-build: ios

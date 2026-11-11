@@ -13,3 +13,6 @@ tests/e2e-plan1.sh
 ios/*.xcodeproj/
 ios/App/Info.plist
 ios/.build/
+ios/Local.xcconfig
+# Written by Xcode when it opens the package
+mac/.swiftpm/

@@ -50,8 +50,10 @@ enum Base64URL {
     }
 }
 
-public enum HandshakeError: Error, Equatable {
-    case badSecret, unknownPeer, malformed
+public enum HandshakeError: String, Error, Equatable, Sendable {
+    case badSecret = "bad_secret"
+    case unknownPeer = "unknown_peer"
+    case malformed
 }
 
 public struct SessionKeys: Sendable {
@@ -170,6 +172,47 @@ public enum Handshake {
         return SessionKeys(
             send: derive(ikm, secret: pairingSecret, info: phoneToMac, transcript: bound),
             receive: derive(ikm, secret: pairingSecret, info: macToPhone, transcript: bound))
+    }
+
+    struct Rejection: Codable {
+        let error: String
+        /// HMAC over the hello, keyed from DH(s_mac, s_phone).
+        let mac: Data
+        var v: Int? = Handshake.protocolVersion
+    }
+
+    /// The Mac's answer to a hello it refuses. Authenticated with the static
+    /// keys, so the phone believes it only from the Mac it paired with, and
+    /// only for the hello it just sent. Nil when the hello carries no usable
+    /// phone key: then there is nobody to answer.
+    public static func macReject(
+        hello: Data, macStatic: Curve25519.KeyAgreement.PrivateKey, reason: HandshakeError
+    ) -> Data? {
+        guard let h = try? JSONDecoder().decode(Hello.self, from: hello),
+              let phone = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: h.phoneKey),
+              let shared = try? macStatic.sharedSecretFromKeyAgreement(with: phone) else { return nil }
+        let mac = Data(HMAC<SHA256>.authenticationCode(for: hello, using: rejectionKey(shared.raw)))
+        return try? JSONEncoder().encode(Rejection(error: reason.rawValue, mac: mac))
+    }
+
+    /// Why the paired Mac refused `hello`, or nil if `reply` is not a
+    /// rejection that Mac wrote for this hello.
+    public static func rejection(
+        in reply: Data, hello: Data, phoneStatic: Curve25519.KeyAgreement.PrivateKey, macKey: Data
+    ) -> HandshakeError? {
+        guard let r = try? JSONDecoder().decode(Rejection.self, from: reply),
+              let reason = HandshakeError(rawValue: r.error),
+              let mac = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: macKey),
+              let shared = try? phoneStatic.sharedSecretFromKeyAgreement(with: mac),
+              HMAC<SHA256>.isValidAuthenticationCode(r.mac, authenticating: hello, using: rejectionKey(shared.raw))
+        else { return nil }
+        return reason
+    }
+
+    static func rejectionKey(_ staticShared: Data) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: staticShared),
+            salt: Data("touchytua-v1".utf8), info: Data("reject".utf8), outputByteCount: 32)
     }
 
     static func proofFor(secret: Data, phoneKey: Data, ephemeral: Data) -> Data {

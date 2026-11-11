@@ -18,7 +18,11 @@
 2. Il Mac accetta:
    - un hello **con** `proof`, se è valido per il segreto del QR ancora attivo: è un nuovo pairing e sostituisce il telefono precedente;
    - un hello **senza** `proof`, solo se `phoneKey` è quella salvata. Vale anche mentre un QR aspetta di essere scansionato.
-   - Altrimenti chiude la connessione (`badSecret` / `unknownPeer`).
+   - Altrimenti risponde `Rejection { error, mac, v }` e chiude la connessione.
+     - `error` è `bad_secret` (segreto del QR sbagliato, usato o scaduto) oppure `unknown_peer` (telefono non accoppiato).
+     - `mac = HMAC-SHA256(K_rej, hello)`, dove `hello` sono i byte ricevuti e `K_rej = HKDF-SHA256(DH(s_mac, s_phone), salt = "touchytua-v1", info = "reject", 32 B)`.
+     - Il telefono crede al rifiuto solo se `mac` è valido: prova che viene dal Mac accoppiato e riguarda questo hello. Un rifiuto non valido, o una connessione chiusa senza risposta, vale come "indirizzo sbagliato o rete caduta": si riprova.
+     - A un hello illeggibile il Mac non risponde.
 3. Mac → telefono: `Reply { ephemeral, v }`.
 4. Chiavi:
    - `ikm = DH(e_mac, e_phone) || DH(s_mac, s_phone)`

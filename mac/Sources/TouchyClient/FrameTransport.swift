@@ -12,8 +12,10 @@ public protocol FrameTransport: Sendable {
 }
 
 public enum LinkError: Error, Equatable {
-    /// The Mac refused the handshake: unknown phone, or a QR secret that is
-    /// wrong, used or expired.
+    /// The paired Mac refused the handshake: it no longer knows this phone,
+    /// or the QR secret is wrong, used or expired. Retrying will not help.
     case rejected
+    /// Something answered, but not the Mac this phone is paired with.
+    case wrongHost
     case closed
 }

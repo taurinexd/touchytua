@@ -31,7 +31,7 @@ import TouchyProtocol
         guard case .snapshot = try await link.next() else { Issue.record("no snapshot"); return }
     }
 
-    /// The Mac closes on a key it does not know: that is a rejection, not a network error.
+    /// The Mac answers a key it does not know: that is a rejection, not a network error.
     @Test func unknownPhoneIsRejected() async {
         var mac = FakeMac()
         mac.knownPhoneKey = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
@@ -39,6 +39,38 @@ import TouchyProtocol
         mac.serve(macEnd)
         let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: mac.publicKey, pairingSecret: nil)
         await #expect(throws: LinkError.rejected) { _ = try await link.open() }
+    }
+
+    /// A wrong or expired QR secret is a rejection too.
+    @Test func wrongSecretIsRejected() async {
+        var mac = FakeMac()
+        mac.pendingSecret = Data(repeating: 1, count: 32)
+        let (phoneEnd, macEnd) = MemoryTransport.pair()
+        mac.serve(macEnd)
+        let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: mac.publicKey, pairingSecret: secret)
+        await #expect(throws: LinkError.rejected) { _ = try await link.open() }
+    }
+
+    /// Losing the network mid-handshake must not look like "pair again".
+    @Test func connectionLostDuringHandshakeIsNotARejection() async {
+        var mac = FakeMac()
+        mac.knownPhoneKey = phoneKey.publicKey.rawRepresentation
+        mac.dropsHandshake = true
+        let (phoneEnd, macEnd) = MemoryTransport.pair()
+        mac.serve(macEnd)
+        let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: mac.publicKey, pairingSecret: nil)
+        await #expect(throws: LinkError.closed) { _ = try await link.open() }
+    }
+
+    /// A different Mac that took over the address refuses us, but its word
+    /// says nothing about the Mac we are paired with.
+    @Test func refusalFromAnotherMacIsNotARejection() async {
+        let paired = FakeMac()
+        let stranger = FakeMac()
+        let (phoneEnd, macEnd) = MemoryTransport.pair()
+        stranger.serve(macEnd)
+        let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: paired.publicKey, pairingSecret: nil)
+        await #expect(throws: LinkError.wrongHost) { _ = try await link.open() }
     }
 
     @Test func tamperedFrameIsRefused() async throws {

@@ -22,18 +22,19 @@ public actor PhoneLink {
     }
 
     /// Runs the handshake. Returns the protocol version the Mac speaks.
+    /// Throws `rejected` only on the paired Mac's own refusal; a connection
+    /// that dies first rethrows the transport's error, so it can be retried.
     public func open() async throws -> Int {
         let ephemeral = Curve25519.KeyAgreement.PrivateKey()
-        transport.send(Handshake.phoneHello(phoneStatic: phoneKey, ephemeral: ephemeral, pairingSecret: pairingSecret))
-        let reply: Data
-        do {
-            reply = try await transport.receive()
-        } catch {
-            // The Mac answers a hello it does not accept by closing.
+        let hello = Handshake.phoneHello(phoneStatic: phoneKey, ephemeral: ephemeral, pairingSecret: pairingSecret)
+        transport.send(hello)
+        let reply = try await transport.receive()
+        if Handshake.rejection(in: reply, hello: hello, phoneStatic: phoneKey, macKey: macKey) != nil {
             throw LinkError.rejected
         }
-        let keys = try Handshake.phoneFinish(
+        guard let keys = try? Handshake.phoneFinish(
             reply: reply, phoneStatic: phoneKey, ephemeral: ephemeral, macKey: macKey, pairingSecret: pairingSecret)
+        else { throw LinkError.wrongHost }
         channel = SecureChannel(keys: keys)
         return Handshake.peerVersion(in: reply)
     }

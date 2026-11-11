@@ -217,6 +217,12 @@ final class PhoneConnection: @unchecked Sendable {
             Log.info("phone: handshake accepted, protocol v\(Handshake.peerVersion(in: hello))\(accepted.isNewPairing ? " (new pairing)" : "")")
         } catch {
             Log.info("phone: handshake rejected (\(error)); closing")
+            // Say no before hanging up, so the phone can tell a refusal
+            // (pair again) from a lost connection (try again).
+            if let reason = error as? HandshakeError, let key = try? store.macKey(),
+               let no = Handshake.macReject(hello: hello, macStatic: key, reason: reason) {
+                _ = sendFrame(no)
+            }
             closeTransport()
         }
     }

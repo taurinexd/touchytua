@@ -1,15 +1,18 @@
 import CryptoKit
 import Foundation
-import TouchyKit
+import TouchyClient
+import TouchyProtocol
 
-// touchytua-client — simulates the iPhone for end-to-end verification.
+// touchytua-client — simulates the iPhone for end-to-end verification, on
+// the same client core the iOS app uses.
 //   pair "<qr url>"                      first pairing (uses the one-time secret)
 //   watch [seconds]                      print every message from the Mac
 //   approve|deny <requestId>
 //   answer <requestId> "<question>=<label>"
 //   prompt <sessionId> "<text>"
 //   raw <type>                           send a message type the Mac does not know
-// Global: --via lan|ts (endpoint choice), --key <file> (use another phone key).
+// Global: --via lan|ts|bonjour (endpoint choice; bonjour finds the Mac on the
+// local network by its key), --key <file> (use another phone key).
 
 // Line-buffered stdout so `watch` output reaches files/pipes immediately.
 setvbuf(stdout, nil, _IOLBF, 0)
@@ -30,72 +33,110 @@ func parseArguments(_ raw: [String]) -> (positional: [String], via: String?, key
 let parsed = parseArguments(Array(CommandLine.arguments.dropFirst()))
 let args = parsed.positional
 let via = parsed.via
-let keyPath = parsed.key ?? stateDir + "/phone-key"
-
-struct ClientState: Codable {
-    var macKey: Data
-    var endpoints: [String]
-}
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("touchytua-client: \(message)\n".utf8))
     exit(1)
 }
 
-func phoneKey() -> Curve25519.KeyAgreement.PrivateKey {
-    if let raw = FileManager.default.contents(atPath: keyPath),
-       let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return key }
-    let key = Curve25519.KeyAgreement.PrivateKey()
-    try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
-    FileManager.default.createFile(atPath: keyPath, contents: key.rawRepresentation, attributes: [.posixPermissions: 0o600])
-    return key
-}
+/// The phone's key and pairings as files, where the app uses the Keychain.
+struct FileSecretStore: SecretStore {
+    let keyPath: String
+    let statePath: String
 
-func url(for endpoints: [String]) -> URL {
-    guard let pick = endpoints.first(where: { via == nil || $0.hasPrefix(via! + ":") }) else {
-        fail("no endpoint for --via \(via ?? "")")
+    /// What `state.json` held before pairings became a list.
+    private struct Legacy: Codable {
+        var macKey: Data
+        var endpoints: [String]
     }
-    let parts = pick.split(separator: ":", maxSplits: 1)[1]
-    return URL(string: "ws://\(parts)")!
+
+    func phoneKey() throws -> Curve25519.KeyAgreement.PrivateKey {
+        if let raw = FileManager.default.contents(atPath: keyPath),
+           let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return key }
+        let key = Curve25519.KeyAgreement.PrivateKey()
+        write(key.rawRepresentation, to: keyPath)
+        return key
+    }
+
+    func pairings() -> [PairingRecord] {
+        guard let data = FileManager.default.contents(atPath: statePath) else { return [] }
+        if let records = try? JSONDecoder().decode([PairingRecord].self, from: data) { return records }
+        if let old = try? JSONDecoder().decode(Legacy.self, from: data) {
+            return [PairingRecord(macName: "Mac", macKey: old.macKey, endpoints: old.endpoints)]
+        }
+        return []
+    }
+
+    func save(_ record: PairingRecord) {
+        let records = [record] + pairings().filter { $0.macKey != record.macKey }
+        write((try? JSONEncoder().encode(records)) ?? Data(), to: statePath)
+    }
+
+    func remove(macKey: Data) {
+        write((try? JSONEncoder().encode(pairings().filter { $0.macKey != macKey })) ?? Data(), to: statePath)
+    }
+
+    private func write(_ data: Data, to path: String) {
+        try? FileManager.default.createDirectory(
+            atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: path, contents: data, attributes: [.posixPermissions: 0o600])
+    }
 }
 
-final class Link {
-    let task: URLSessionWebSocketTask
-    var channel: SecureChannel
+let store = FileSecretStore(keyPath: parsed.key ?? stateDir + "/phone-key", statePath: stateDir + "/state.json")
 
-    init(state: ClientState, secret: Data?) async {
-        task = URLSession.shared.webSocketTask(with: url(for: state.endpoints))
-        task.resume()
-        let me = phoneKey(), eph = Curve25519.KeyAgreement.PrivateKey()
+/// The addresses to try: all of them in QR order, or only the `--via` kind.
+func candidates(_ record: PairingRecord) -> [String] {
+    if via == "bonjour" { return [Endpoint.bonjour(forMacKey: record.macKey).text] }
+    let picked = record.endpoints.filter { via == nil || $0.hasPrefix(via! + ":") }
+    if picked.isEmpty { fail("no endpoint for --via \(via ?? "")") }
+    return picked
+}
+
+/// Connects to the first address that completes the handshake.
+func connect(_ record: PairingRecord, secret: Data?) async -> PhoneLink {
+    guard let key = try? store.phoneKey() else { fail("cannot read or create the phone key") }
+    var problems: [String] = []
+    for text in candidates(record) {
+        guard let endpoint = Endpoint(text) else {
+            problems.append("\(text): unreadable address")
+            continue
+        }
         do {
-            try await task.send(.data(Handshake.phoneHello(phoneStatic: me, ephemeral: eph, pairingSecret: secret)))
-            guard case let .data(reply) = try await task.receive() else { fail("unexpected handshake reply") }
-            let keys = try Handshake.phoneFinish(reply: reply, phoneStatic: me, ephemeral: eph,
-                                                 macKey: state.macKey, pairingSecret: secret)
-            channel = SecureChannel(keys: keys)
-        } catch {
-            fail("handshake failed: \(error)")
-        }
-    }
-
-    func send(_ m: PhoneToMac) async throws {
-        try await task.send(.data(channel.seal(JSONEncoder().encode(m))))
-    }
-
-    func next(timeout: TimeInterval) async -> MacToPhone? {
-        let task = self.task
-        let frame: Data? = await withTaskGroup(of: Data?.self) { group in
-            group.addTask {
-                guard case let .data(d) = try? await task.receive() else { return nil }
-                return d
+            let link = try await within(seconds: 5) {
+                let transport = try await NWWebSocketTransport.connect(to: endpoint)
+                let link = PhoneLink(transport: transport, phoneKey: key, macKey: record.macKey, pairingSecret: secret)
+                do {
+                    _ = try await link.open()
+                } catch {
+                    await link.close()
+                    throw error
+                }
+                return link
             }
-            group.addTask { try? await Task.sleep(nanoseconds: UInt64(timeout * 1e9)); return nil }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            return link
+        } catch LinkError.rejected {
+            fail("handshake failed: the Mac refused this phone (\(secret == nil ? "not paired" : "QR expired or used"))")
+        } catch {
+            problems.append("\(text): \(error)")
         }
-        guard let frame, let plain = try? channel.open(frame) else { return nil }
-        return try? JSONDecoder().decode(MacToPhone.self, from: plain)
+    }
+    fail("handshake failed: \(problems.joined(separator: "; "))")
+}
+
+struct TimedOut: Error {}
+
+/// Runs `work`, giving up (and cancelling it) after `seconds`.
+func within<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T?.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            return nil
+        }
+        defer { group.cancelAll() }
+        guard let first = try await group.next(), let value = first else { throw TimedOut() }
+        return value
     }
 }
 
@@ -106,26 +147,25 @@ func describe(_ m: MacToPhone) -> String {
     return String(decoding: (try? enc.encode(m)) ?? Data(), as: UTF8.self)
 }
 
-func loadState() -> ClientState {
-    guard let data = FileManager.default.contents(atPath: stateDir + "/state.json"),
-          let s = try? JSONDecoder().decode(ClientState.self, from: data) else { fail("not paired: run pair first") }
-    return s
+func paired() -> PairingRecord {
+    guard let record = store.pairings().first else { fail("not paired: run pair first") }
+    return record
+}
+
+/// The next message, or nil if none arrives in `seconds` (the link is then closed).
+func next(_ link: PhoneLink, within seconds: Double) async -> MacToPhone? {
+    try? await within(seconds: seconds) { try await link.next() }
 }
 
 /// Connects, says hello, prints the snapshot, sends `message`, prints replies for `wait` seconds.
 func session(_ message: PhoneToMac?, wait: TimeInterval) async {
-    let link = await Link(state: loadState(), secret: nil)
-    do { try await link.send(.hello(deviceName: "touchytua-client")) } catch { fail("send: \(error)") }
-    if let snapshot = await link.next(timeout: 5) { print(describe(snapshot)) } else { fail("no snapshot") }
-    if let message {
-        do { try await link.send(message) } catch { fail("send: \(error)") }
-    }
-    let end = Date().addingTimeInterval(wait)
-    // A pending WebSocket receive does not end when its task is cancelled,
-    // so on a quiet link `next(timeout:)` would wait for the next message:
-    // leave at the deadline regardless.
+    let link = await connect(paired(), secret: nil)
+    await link.send(.hello(deviceName: "touchytua-client"))
+    if let snapshot = await next(link, within: 5) { print(describe(snapshot)) } else { fail("no snapshot") }
+    if let message { await link.send(message) }
+    // Leave at the deadline even on a quiet link.
     DispatchQueue.global().asyncAfter(deadline: .now() + wait) { exit(0) }
-    while Date() < end, let m = await link.next(timeout: end.timeIntervalSinceNow) {
+    while let m = try? await link.next() {
         print(describe(m))
         if case .error = m, message != nil { exit(3) }
     }
@@ -134,13 +174,12 @@ func session(_ message: PhoneToMac?, wait: TimeInterval) async {
 switch args.first {
 case "pair":
     guard args.count >= 2, let payload = try? PairingPayload.parse(url: args[1]) else { fail("usage: pair <url>") }
-    let state = ClientState(macKey: payload.macKey, endpoints: payload.endpoints)
-    let link = await Link(state: state, secret: payload.secret)
-    try? await link.send(.hello(deviceName: "touchytua-client"))
-    guard let snapshot = await link.next(timeout: 5) else { fail("no snapshot after pairing") }
-    try? FileManager.default.createDirectory(atPath: stateDir, withIntermediateDirectories: true)
-    FileManager.default.createFile(atPath: stateDir + "/state.json", contents: try JSONEncoder().encode(state),
-                                   attributes: [.posixPermissions: 0o600])
+    let record = PairingRecord(macName: payload.macName, macKey: payload.macKey, endpoints: payload.endpoints)
+    let link = await connect(record, secret: payload.secret)
+    // The Mac has accepted: from here on this phone is the paired one.
+    store.save(record)
+    await link.send(.hello(deviceName: "touchytua-client"))
+    guard let snapshot = await next(link, within: 5) else { fail("no snapshot after pairing") }
     print("paired with \(payload.macName)")
     print(describe(snapshot))
 case "watch":
@@ -158,11 +197,11 @@ case "raw":
     guard args.count >= 2 else { fail("usage: raw <type>") }
     // Not `session`: that exits on the first error, and here the error is
     // the expected answer; the snapshot after it proves the link survived.
-    let link = await Link(state: loadState(), secret: nil)
-    try? await link.send(.unknown(args[1]))
-    if let reply = await link.next(timeout: 3) { print(describe(reply)) }
-    try? await link.send(.hello(deviceName: "touchytua-client"))
-    if let snapshot = await link.next(timeout: 3), case .snapshot = snapshot { print("still connected: snapshot received") }
+    let link = await connect(paired(), secret: nil)
+    await link.send(.unknown(args[1]))
+    if let reply = await next(link, within: 3) { print(describe(reply)) }
+    await link.send(.hello(deviceName: "touchytua-client"))
+    if let snapshot = await next(link, within: 3), case .snapshot = snapshot { print("still connected: snapshot received") }
 default:
     fail("usage: pair <url> | watch [s] | approve|deny <id> | answer <id> \"q=label\" | prompt <sid> \"text\"")
 }

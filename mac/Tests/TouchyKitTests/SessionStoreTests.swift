@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 @Suite struct SessionStoreTests {
     private func tempPath() -> String {
@@ -16,9 +17,10 @@ import Testing
         let store = SessionStore(path: path)
         let s = Session(id: "s1", title: "t", cwd: "/p", state: .done,
                         round: Round(startedAt: Date(timeIntervalSince1970: 10), endedAt: Date(timeIntervalSince1970: 20), tokens: 5, summary: "ok"),
-                        lastEventAt: Date(timeIntervalSince1970: 20), inboxSocket: "/tmp/x.sock", inboxToken: "tok")
-        store.save([s])
-        #expect(store.load() == [s])
+                        lastEventAt: Date(timeIntervalSince1970: 20))
+        let stored = StoredSession(session: s, inbox: InboxCredentials(socket: "/tmp/x.sock", token: "tok"))
+        store.save([stored])
+        #expect(store.load() == [stored])
         let mode = ((try? FileManager.default.attributesOfItem(atPath: path)[.posixPermissions]) as? Int) ?? -1
         #expect(mode == 0o600)
     }
@@ -35,13 +37,16 @@ import Testing
         _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 50, event: [
             "hook_event_name": .string("UserPromptSubmit"), "session_id": .string("live"), "cwd": .string("/p/app")]))
         let saved = [
-            Session(id: "live", title: "stale", cwd: "/p", state: .done, lastEventAt: Date(timeIntervalSince1970: 1)),
-            Session(id: "idle", title: "idle", cwd: "/p", state: .done, lastEventAt: Date(timeIntervalSince1970: 2),
-                    inboxSocket: "/tmp/i.sock", inboxToken: "tok"),
+            StoredSession(session: Session(id: "live", title: "stale", cwd: "/p", state: .done, lastEventAt: Date(timeIntervalSince1970: 1)),
+                          inbox: InboxCredentials(socket: "/tmp/old.sock", token: "old")),
+            StoredSession(session: Session(id: "idle", title: "idle", cwd: "/p", state: .done, lastEventAt: Date(timeIntervalSince1970: 2)),
+                          inbox: InboxCredentials(socket: "/tmp/i.sock", token: "tok")),
         ]
         await hub.restore(saved)
         #expect(await hub.sessions["live"]?.state == .working)
-        #expect(await hub.sessions["idle"]?.inboxToken == "tok")
+        #expect(await hub.inbox["live"] == nil)
+        #expect(await hub.sessions["idle"]?.title == "idle")
+        #expect(await hub.inbox["idle"]?.token == "tok")
     }
 
     @Test func hubPersistsOnVisibleChangesOnly() async {
@@ -54,7 +59,7 @@ import Testing
                          messagingSocket: "/tmp/a.sock", messagingToken: "tok")
         }
         _ = await hub.handle(event("UserPromptSubmit", at: 1))
-        #expect(store.load().first?.inboxToken == "tok")
+        #expect(store.load().first?.inbox?.token == "tok")
         let written = try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date
         _ = await hub.handle(event("PreToolUse", at: 2))
         #expect((try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) == written)

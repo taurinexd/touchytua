@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 struct OrderedJSONDocumentTests {
     private let source = """

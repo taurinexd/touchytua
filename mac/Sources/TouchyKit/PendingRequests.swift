@@ -1,35 +1,31 @@
 import Foundation
 
-/// Who settled a pending request.
-public enum ResolvedBy: String, Codable, Sendable {
-    /// The paired phone answered.
-    case phone
-    /// Something else did: the terminal dialog, another tool's hook, or the
-    /// session moving on.
-    case terminal
-}
+extension PendingRequest {
+    /// Longest string of a tool input that is sent to the phone as is.
+    public static let phoneStringLimit = 2000
 
-/// A permission or question a hook is holding open, waiting for the phone.
-public struct PendingRequest: Codable, Equatable, Sendable, Identifiable {
-    public enum Kind: String, Codable, Sendable { case permission, question }
-
-    public let id: String
-    public let sessionId: String
-    public let kind: Kind
-    public let toolName: String
-    public let toolInput: [String: JSONValue]
-    public let createdAt: Date
-
-    public init(
-        id: String, sessionId: String, kind: Kind, toolName: String,
-        toolInput: [String: JSONValue], createdAt: Date
-    ) {
-        self.id = id
-        self.sessionId = sessionId
-        self.kind = kind
-        self.toolName = toolName
-        self.toolInput = toolInput
-        self.createdAt = createdAt
+    /// What the phone receives: the same request with every string of the
+    /// tool input longer than `limit` cut and marked. The hook is always
+    /// answered from the original.
+    public func forPhone(limit: Int = PendingRequest.phoneStringLimit) -> PendingRequest {
+        var cut = false
+        func shorten(_ value: JSONValue) -> JSONValue {
+            switch value {
+            case let .string(text) where text.count > limit:
+                cut = true
+                return .string(text.prefix(limit) + "…")
+            case let .array(items):
+                return .array(items.map(shorten))
+            case let .object(fields):
+                return .object(fields.mapValues(shorten))
+            default:
+                return value
+            }
+        }
+        let input = toolInput.mapValues(shorten)
+        guard cut else { return self }
+        return PendingRequest(id: id, sessionId: sessionId, kind: kind, toolName: toolName,
+                              toolInput: input, createdAt: createdAt, truncated: true)
     }
 
     /// 8 random characters from [a-z0-9].

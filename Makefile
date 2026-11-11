@@ -32,3 +32,16 @@ statusline-smoke: build
 .PHONY: daemon-smoke
 daemon-smoke: build
 	tests/daemon-smoke.sh mac/.build/debug/touchytuad mac/.build/debug/touchytua-hook
+
+# iOS app. Needs full Xcode and XcodeGen (`brew install xcodegen`); the
+# Xcode project is generated from ios/project.yml and never committed.
+XCODE ?= /Applications/Xcode.app/Contents/Developer
+
+.PHONY: ios ios-build
+ios:
+	cd ios && { [ -f Local.xcconfig ] || cp Local.xcconfig.example Local.xcconfig; } && xcodegen
+
+# Builds the app and the scripted finger for the Simulator named by SIM (udid).
+ios-build: ios
+	cd ios && DEVELOPER_DIR=$(XCODE) xcodebuild -project Touchytua.xcodeproj -scheme Touchytua \
+		-sdk iphonesimulator -destination "id=$(SIM)" -derivedDataPath .build build-for-testing

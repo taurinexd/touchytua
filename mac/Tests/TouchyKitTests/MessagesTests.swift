@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private func roundTrip<T: Codable & Equatable>(_ value: T) throws -> T {
     try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
@@ -63,8 +64,10 @@ private final class Injected: @unchecked Sendable {
         let out = await router.handle(.hello(deviceName: "iPhone"))
         guard case let .snapshot(sessions, pending, _) = out.first else { Issue.record("no snapshot"); return }
         #expect(sessions.map(\.id) == ["s1"])
-        #expect(sessions.first?.inboxToken == nil && sessions.first?.inboxSocket == nil)
         #expect(pending.isEmpty)
+        // The inbox credentials are not part of what can be sent at all.
+        let wire = String(decoding: (try? JSONEncoder().encode(out.first)) ?? Data(), as: UTF8.self)
+        #expect(!wire.contains("tok") && !wire.contains("x.sock"))
     }
 
     @Test func unknownRequestReturnsError() async {
@@ -78,11 +81,18 @@ private final class Injected: @unchecked Sendable {
         _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 1, event: ["hook_event_name": .string("SessionStart"), "session_id": .string("s1"), "cwd": .string("/p")],
                                           messagingSocket: "/tmp/x.sock", messagingToken: "tok"))
         let log = Injected()
-        let router = PhoneRouter(hub: hub) { s, text in log.calls.append((s.inboxSocket ?? "", text)) }
+        let router = PhoneRouter(hub: hub) { inbox, text in log.calls.append((inbox.socket, text)) }
         #expect(await router.handle(.prompt(sessionId: "s1", text: "fai i test")).isEmpty)
         #expect(log.calls.count == 1)
         #expect(log.calls.first?.0 == "/tmp/x.sock")
         #expect(log.calls.first?.1 == "[Sent by the user from their phone via touchytua] fai i test")
+    }
+
+    @Test func promptToSessionWithoutInboxFails() async {
+        let hub = Hub()
+        _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 1, event: ["hook_event_name": .string("SessionStart"), "session_id": .string("s1"), "cwd": .string("/p")]))
+        let router = PhoneRouter(hub: hub) { _, _ in }
+        #expect(await router.handle(.prompt(sessionId: "s1", text: "x")) == [.error(code: "inject_failed")])
     }
 
     @Test func promptToUnknownSessionFails() async {

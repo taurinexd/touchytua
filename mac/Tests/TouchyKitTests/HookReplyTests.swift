@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private func decode(_ data: Data) throws -> [String: JSONValue] {
     #expect(data.last == 0x0A, "reply must end with a newline")

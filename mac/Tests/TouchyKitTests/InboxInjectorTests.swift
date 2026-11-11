@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 /// Minimal one-shot Unix socket server: returns everything the client sent.
 private func captureOne(at path: String) -> Task<String, Never> {
@@ -23,9 +24,7 @@ private func captureOne(at path: String) -> Task<String, Never> {
     @Test func writesAuthThenUserLine() async throws {
         let path = NSTemporaryDirectory() + "tt-inj-\(getpid()).sock"
         let server = captureOne(at: path)
-        let session = Session(id: "s1", title: "t", cwd: "/", state: .done, lastEventAt: Date(),
-                              inboxSocket: path, inboxToken: "tok\"x")
-        try InboxInjector.inject(text: "ciao \"mondo\"\nriga 2", into: session)
+        try InboxInjector.inject(text: "ciao \"mondo\"\nriga 2", into: InboxCredentials(socket: path, token: "tok\"x"))
         let lines = await server.value.split(separator: "\n").map(String.init)
         #expect(lines.count == 2)
         let auth = try JSONDecoder().decode([String: String].self, from: Data(lines[0].utf8))
@@ -35,26 +34,18 @@ private func captureOne(at path: String) -> Task<String, Never> {
         #expect(user["message"] == .object(["role": .string("user"), "content": .string("ciao \"mondo\"\nriga 2")]))
     }
 
-    @Test func noInboxThrows() {
-        let session = Session(id: "s1", title: "t", cwd: "/", state: .done, lastEventAt: Date())
-        #expect(throws: InboxInjector.Failure.noInbox) { try InboxInjector.inject(text: "x", into: session) }
-    }
-
     @Test func deadSocketThrowsConnectFailed() {
-        let session = Session(id: "s1", title: "t", cwd: "/", state: .done, lastEventAt: Date(),
-                              inboxSocket: "/tmp/does-not-exist-\(getpid()).sock", inboxToken: "t")
-        #expect(throws: InboxInjector.Failure.connectFailed) { try InboxInjector.inject(text: "x", into: session) }
+        let inbox = InboxCredentials(socket: "/tmp/does-not-exist-\(getpid()).sock", token: "t")
+        #expect(throws: InboxInjector.Failure.connectFailed) { try InboxInjector.inject(text: "x", into: inbox) }
     }
 
     /// Liveness probe for sessions that ended without SessionEnd.
     @Test func reachabilityFollowsTheSocket() async {
         let path = NSTemporaryDirectory() + "tt-live-\(getpid()).sock"
         let server = captureOne(at: path)
-        let alive = Session(id: "s1", title: "t", cwd: "/", state: .done, lastEventAt: Date(), inboxSocket: path, inboxToken: "t")
-        #expect(InboxInjector.isReachable(alive) == true)
+        let inbox = InboxCredentials(socket: path, token: "t")
+        #expect(InboxInjector.isReachable(inbox))
         _ = await server.value
-        #expect(InboxInjector.isReachable(alive) == false)
-        let unknown = Session(id: "s2", title: "t", cwd: "/", state: .done, lastEventAt: Date())
-        #expect(InboxInjector.isReachable(unknown) == nil)
+        #expect(!InboxInjector.isReachable(inbox))
     }
 }

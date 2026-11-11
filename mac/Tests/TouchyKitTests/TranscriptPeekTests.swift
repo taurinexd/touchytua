@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 struct TranscriptPeekTests {
 

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private func envelope(
     _ name: String, session: String = "s1", at: Double, extra: [String: JSONValue] = [:],
@@ -22,8 +23,64 @@ private func envelope(
         let s = sessions["s1"]
         #expect(s?.state == .ready)
         #expect(s?.title == "app")
-        #expect(s?.inboxSocket == "/tmp/cc-socks/1.sock")
-        #expect(s?.inboxToken == "tok")
+    }
+
+    /// Until the first round ends there is no transcript title: without this
+    /// two sessions in one folder look the same while they wait for approval.
+    @Test func theFirstPromptNamesAnUntitledSession() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("SessionStart", at: 100), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("  Fix the cart total\n\nIt is off by one cent."),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Fix the cart total")
+    }
+
+    @Test func aLaterPromptDoesNotRenameTheSession() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("Fix the cart")]), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 102, extra: ["prompt": .string("now the tests")]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Fix the cart")
+    }
+
+    @Test func aPromptFromThePhoneIsNamedWithoutItsPrefix() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(PhoneRouter.promptPrefix + "Run the tests"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Run the tests")
+    }
+
+    @Test func aLongPromptIsCutForTheTitle() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(String(repeating: "word ", count: 100)),
+        ]), to: &sessions)
+        let title = sessions["s1"]?.title ?? ""
+        #expect(title.count <= 120)
+        #expect(title.hasSuffix("word…"))
+    }
+
+    @Test func aPromptThatFitsIsNotMarkedAsCut() {
+        var sessions: [String: Session] = [:]
+        let prompt = String(repeating: "a", count: 120)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string(prompt)]), to: &sessions)
+        #expect(sessions["s1"]?.title == prompt)
+    }
+
+    @Test func aLongWordIsCutWhereItMust() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(String(repeating: "a", count: 300)),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == String(repeating: "a", count: 119) + "…")
+    }
+
+    @Test func anEmptyPromptKeepsTheFolderName() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("  \n ")]), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 102), to: &sessions)
+        #expect(sessions["s1"]?.title == "app")
     }
 
     @Test func promptStartsRound() {
@@ -111,10 +168,11 @@ private func envelope(
 
     /// A daemon restarted mid-session never sees SessionStart again: the
     /// credentials must be picked up from whatever event comes next.
-    @Test func inboxCredentialsFromLaterEventAreStored() {
-        var sessions: [String: Session] = [:]
-        SessionReducer.apply(envelope("UserPromptSubmit", at: 100, socket: "/tmp/cc-socks/9.sock", token: "tok9"), to: &sessions)
-        #expect(sessions["s1"]?.inboxSocket == "/tmp/cc-socks/9.sock")
-        #expect(sessions["s1"]?.inboxToken == "tok9")
+    @Test func inboxCredentialsFromLaterEventAreStored() async {
+        let hub = Hub()
+        _ = await hub.handle(envelope("UserPromptSubmit", at: 100, socket: "/tmp/cc-socks/9.sock", token: "tok9"))
+        #expect(await hub.inbox["s1"] == InboxCredentials(socket: "/tmp/cc-socks/9.sock", token: "tok9"))
+        _ = await hub.handle(envelope("SessionEnd", at: 101))
+        #expect(await hub.inbox["s1"] == nil)
     }
 }

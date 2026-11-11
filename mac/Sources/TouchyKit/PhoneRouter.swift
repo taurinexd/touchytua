@@ -7,18 +7,29 @@ public struct PhoneRouter: Sendable {
     public static let promptPrefix = "[Sent by the user from their phone via touchytua] "
 
     let hub: Hub
-    let inject: @Sendable (Session, String) throws -> Void
+    let inject: @Sendable (InboxCredentials, String) throws -> Void
 
-    public init(hub: Hub, inject: @escaping @Sendable (Session, String) throws -> Void) {
+    public init(hub: Hub, inject: @escaping @Sendable (InboxCredentials, String) throws -> Void) {
         self.hub = hub
         self.inject = inject
     }
 
     public func snapshot() async -> MacToPhone {
-        let sessions = await hub.sessions.values
-            .sorted { $0.lastEventAt > $1.lastEventAt }
-            .map(\.forPhone)
-        return .snapshot(sessions: sessions, pending: await hub.pending.openRequests, usage: await hub.usage)
+        let sessions = await hub.sessions.values.sorted { $0.lastEventAt > $1.lastEventAt }
+        let pending = await hub.pending.openRequests.map { $0.forPhone() }
+        return .snapshot(sessions: sessions, pending: pending, usage: await hub.usage)
+    }
+
+    /// What a change in the hub looks like to the phone. Together with
+    /// `snapshot`, the only place where Mac-side data becomes a message.
+    public static func message(for change: Hub.Change) -> MacToPhone {
+        switch change {
+        case let .session(session): .session(session)
+        case let .sessionRemoved(id): .sessionRemoved(id: id)
+        case let .pending(.opened(request)): .request(request.forPhone())
+        case let .pending(.resolved(id, by)): .requestResolved(id: id, by: by)
+        case let .usage(usage): .usage(usage)
+        }
     }
 
     /// Returns the messages to send back to this phone.
@@ -33,9 +44,11 @@ public struct PhoneRouter: Sendable {
         case let .answer(id, answers):
             return await hub.answer(requestId: id, answers: answers) ? [] : [.error(code: "unknown_request")]
         case let .prompt(sessionId, text):
-            guard let session = await hub.sessions[sessionId] else { return [.error(code: "unknown_session")] }
+            guard await hub.sessions[sessionId] != nil else { return [.error(code: "unknown_session")] }
+            // A session without an inbox (messaging off) cannot be prompted.
+            guard let inbox = await hub.inbox[sessionId] else { return [.error(code: "inject_failed")] }
             do {
-                try inject(session, Self.promptPrefix + text)
+                try inject(inbox, Self.promptPrefix + text)
                 return []
             } catch {
                 return [.error(code: "inject_failed")]

@@ -11,6 +11,15 @@
 | `endpoints` | [string] | `lan:<host>:<port>`, `ts:<name>.ts.net:<port>` |
 | `macName` | string | nome leggibile |
 
+## Scoperta in rete locale (Bonjour)
+- Il Mac si annuncia come `_touchytua._tcp` con record TXT `id=<16 hex>`: i primi 8 byte di `SHA-256(macKey)`.
+- Il telefono lo usa quando l'indirizzo LAN del QR non vale più (DHCP): cerca il servizio con il proprio `id` e si collega lì.
+- È solo un indizio per scegliere tra più Mac: chi risponde viene comunque autenticato dall'handshake.
+
+## Connessione
+- Primo pairing: gli indirizzi del QR uno alla volta, nell'ordine (il segreto vale una volta sola).
+- Riconnessione: tutti gli indirizzi del QR e la ricerca Bonjour in parallelo; vale il primo handshake riuscito, gli altri vengono chiusi. Il Mac accetta più connessioni dallo stesso telefono.
+
 ## Handshake (per connessione)
 1. Telefono → Mac: `Hello { phoneKey, ephemeral, proof?, v }` (JSON).
    - `proof = HMAC-SHA256(secret, phoneKey || ephemeral)`, solo al primo pairing.
@@ -18,7 +27,11 @@
 2. Il Mac accetta:
    - un hello **con** `proof`, se è valido per il segreto del QR ancora attivo: è un nuovo pairing e sostituisce il telefono precedente;
    - un hello **senza** `proof`, solo se `phoneKey` è quella salvata. Vale anche mentre un QR aspetta di essere scansionato.
-   - Altrimenti chiude la connessione (`badSecret` / `unknownPeer`).
+   - Altrimenti risponde `Rejection { error, mac, v }` e chiude la connessione.
+     - `error` è `bad_secret` (segreto del QR sbagliato, usato o scaduto) oppure `unknown_peer` (telefono non accoppiato).
+     - `mac = HMAC-SHA256(K_rej, hello)`, dove `hello` sono i byte ricevuti e `K_rej = HKDF-SHA256(DH(s_mac, s_phone), salt = "touchytua-v1", info = "reject", 32 B)`.
+     - Il telefono crede al rifiuto solo se `mac` è valido: prova che viene dal Mac accoppiato e riguarda questo hello. Un rifiuto non valido, o una connessione chiusa senza risposta, vale come "indirizzo sbagliato o rete caduta": si riprova.
+     - A un hello illeggibile il Mac non risponde.
 3. Mac → telefono: `Reply { ephemeral, v }`.
 4. Chiavi:
    - `ikm = DH(e_mac, e_phone) || DH(s_mac, s_phone)`
@@ -44,4 +57,5 @@ Definiti in `TouchyKit/Messages.swift`.
 - Le date sono secondi dal 2001-01-01 UTC (numero).
 - Plugin e app si aggiornano separatamente: un `t` sconosciuto **non** chiude la connessione. Il telefono lo ignora; il Mac risponde `error` con `code = "unsupported_message"`.
 - Codici di `error`: `unknown_request`, `unknown_session`, `inject_failed`, `unsupported_message`, `bad_message`.
+- `request.toolInput`: le stringhe oltre 2.000 caratteri arrivano tagliate (con `…`) e la richiesta porta `truncated: true`. La risposta all'hook usa sempre l'input originale.
 - Il Mac invia `session` solo quando cambia qualcosa di visibile (stato, titolo, round), non a ogni tool call.

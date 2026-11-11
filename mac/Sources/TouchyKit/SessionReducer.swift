@@ -8,6 +8,29 @@ public enum SessionReducer {
         "Stop", "StopFailure", "SessionEnd",
     ]
 
+    /// The first line of a prompt, without the phone prefix, at most 120
+    /// characters. Nil when nothing readable is left.
+    static func title(fromPrompt prompt: String?) -> String? {
+        guard var text = prompt else { return nil }
+        if text.hasPrefix(PhoneRouter.promptPrefix) { text.removeFirst(PhoneRouter.promptPrefix.count) }
+        let line = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        return line.map { clipped($0, to: 120) }
+    }
+
+    /// `text` in at most `limit` characters: cut at the last space when there
+    /// is one near the end, and marked with an ellipsis.
+    static func clipped(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        var kept = text.prefix(limit - 1)
+        if let space = kept.lastIndex(of: " "), kept.distance(from: space, to: kept.endIndex) <= 24 {
+            kept = kept[..<space]
+        }
+        while let last = kept.last, last == " " || last.isPunctuation { kept.removeLast() }
+        return kept + "…"
+    }
+
     /// Notification types that mean "the session waits for the user".
     static let waitingNotifications: Set<String> = [
         "permission_prompt", "elicitation_dialog", "agent_needs_input",
@@ -34,15 +57,18 @@ public enum SessionReducer {
         // event must not undo a newer transition.
         if sessions[id] != nil, at < session.lastEventAt { return }
         session.lastEventAt = at
-        // Every event carries the inbox credentials: a daemon restarted
-        // mid-session never sees that session's SessionStart again.
-        if let socket = envelope.messagingSocket { session.inboxSocket = socket }
-        if let token = envelope.messagingToken { session.inboxToken = token }
 
         switch name {
         case "UserPromptSubmit":
             session.state = .working
             session.round = Round(startedAt: at)
+            // A provisional title until the transcript gives a better one
+            // at the end of the round: the folder name alone cannot tell
+            // two sessions of one project apart.
+            if session.title == (session.cwd as NSString).lastPathComponent,
+               let title = Self.title(fromPrompt: envelope.event["prompt"]?.stringValue) {
+                session.title = title
+            }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
             session.state = .working
         case "PermissionRequest":

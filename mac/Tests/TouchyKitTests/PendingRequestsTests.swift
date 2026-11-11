@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import TouchyKit
+@testable import TouchyProtocol
 
 private final class EventLog: @unchecked Sendable {
     private let lock = NSLock()

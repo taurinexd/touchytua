@@ -1,6 +1,6 @@
 {
   "name": "touchytua",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Control your Claude Code sessions from your iPhone: live status, approvals, answers and prompts.",
   "author": { "name": "Matteo Morena" },
   "license": "MIT"

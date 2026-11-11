@@ -17,6 +17,7 @@ import XCTest
 ///   waitGone:<text>        wait up to 60 s for it to disappear
 ///   sleep:<seconds>
 ///   back                   tap the navigation bar's back button
+///   home                   go to the Home Screen
 ///   relaunch               terminate and launch the app
 final class DriverTests: XCTestCase {
     // Not `testRun`: XCTest already has a property with that name, and the
@@ -56,6 +57,8 @@ final class DriverTests: XCTestCase {
                 Thread.sleep(forTimeInterval: Double(argument) ?? 1)
             case "back":
                 app.navigationBars.buttons.firstMatch.tap()
+            case "home":
+                XCUIDevice.shared.press(.home)
             case "relaunch":
                 app.terminate()
                 app.launch()

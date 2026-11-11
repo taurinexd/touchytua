@@ -11,7 +11,8 @@ import TouchyProtocol
 //   answer <requestId> "<question>=<label>"
 //   prompt <sessionId> "<text>"
 //   raw <type>                           send a message type the Mac does not know
-// Global: --via lan|ts (endpoint choice), --key <file> (use another phone key).
+// Global: --via lan|ts|bonjour (endpoint choice; bonjour finds the Mac on the
+// local network by its key), --key <file> (use another phone key).
 
 // Line-buffered stdout so `watch` output reaches files/pipes immediately.
 setvbuf(stdout, nil, _IOLBF, 0)
@@ -85,8 +86,9 @@ struct FileSecretStore: SecretStore {
 let store = FileSecretStore(keyPath: parsed.key ?? stateDir + "/phone-key", statePath: stateDir + "/state.json")
 
 /// The addresses to try: all of them in QR order, or only the `--via` kind.
-func candidates(_ endpoints: [String]) -> [String] {
-    let picked = endpoints.filter { via == nil || $0.hasPrefix(via! + ":") }
+func candidates(_ record: PairingRecord) -> [String] {
+    if via == "bonjour" { return [Endpoint.bonjour(forMacKey: record.macKey).text] }
+    let picked = record.endpoints.filter { via == nil || $0.hasPrefix(via! + ":") }
     if picked.isEmpty { fail("no endpoint for --via \(via ?? "")") }
     return picked
 }
@@ -95,7 +97,7 @@ func candidates(_ endpoints: [String]) -> [String] {
 func connect(_ record: PairingRecord, secret: Data?) async -> PhoneLink {
     guard let key = try? store.phoneKey() else { fail("cannot read or create the phone key") }
     var problems: [String] = []
-    for text in candidates(record.endpoints) {
+    for text in candidates(record) {
         guard let endpoint = Endpoint(text) else {
             problems.append("\(text): unreadable address")
             continue

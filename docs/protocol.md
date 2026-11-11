@@ -11,6 +11,15 @@
 | `endpoints` | [string] | `lan:<host>:<port>`, `ts:<name>.ts.net:<port>` |
 | `macName` | string | nome leggibile |
 
+## Scoperta in rete locale (Bonjour)
+- Il Mac si annuncia come `_touchytua._tcp` con record TXT `id=<16 hex>`: i primi 8 byte di `SHA-256(macKey)`.
+- Il telefono lo usa quando l'indirizzo LAN del QR non vale più (DHCP): cerca il servizio con il proprio `id` e si collega lì.
+- È solo un indizio per scegliere tra più Mac: chi risponde viene comunque autenticato dall'handshake.
+
+## Connessione
+- Primo pairing: gli indirizzi del QR uno alla volta, nell'ordine (il segreto vale una volta sola).
+- Riconnessione: tutti gli indirizzi del QR e la ricerca Bonjour in parallelo; vale il primo handshake riuscito, gli altri vengono chiusi. Il Mac accetta più connessioni dallo stesso telefono.
+
 ## Handshake (per connessione)
 1. Telefono → Mac: `Hello { phoneKey, ephemeral, proof?, v }` (JSON).
    - `proof = HMAC-SHA256(secret, phoneKey || ephemeral)`, solo al primo pairing.

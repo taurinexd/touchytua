@@ -11,17 +11,32 @@ public final class NWWebSocketTransport: FrameTransport, @unchecked Sendable {
         self.connection = connection
     }
 
+    /// What `ConnectionManager` dials with: an address as text, in.
+    public static let dial: ConnectionManager.Dial = { text in
+        guard let endpoint = Endpoint(text) else { throw LinkError.closed }
+        return try await connect(to: endpoint)
+    }
+
     /// Connects and completes the WebSocket upgrade. Fails as soon as the
     /// system reports the host unreachable instead of waiting for the
     /// network to change, and gives up when the calling task is cancelled.
     public static func connect(to endpoint: Endpoint) async throws -> NWWebSocketTransport {
-        let host = endpoint.host.contains(":") ? "[\(endpoint.host)]" : endpoint.host
-        guard let url = URL(string: "ws://\(host):\(endpoint.port)/") else { throw LinkError.closed }
+        switch endpoint {
+        case let .bonjour(id):
+            return try await connect(to: try await BonjourBrowser.find(id: id))
+        case let .lan(host, port), let .tailscale(host, port):
+            let literal = host.contains(":") ? "[\(host)]" : host
+            guard let url = URL(string: "ws://\(literal):\(port)/") else { throw LinkError.closed }
+            return try await connect(to: .url(url))
+        }
+    }
+
+    static func connect(to endpoint: NWEndpoint) async throws -> NWWebSocketTransport {
         let parameters = NWParameters.tcp
         let webSocket = NWProtocolWebSocket.Options()
         webSocket.autoReplyPing = true
         parameters.defaultProtocolStack.applicationProtocols.insert(webSocket, at: 0)
-        let connection = NWConnection(to: .url(url), using: parameters)
+        let connection = NWConnection(to: endpoint, using: parameters)
         let once = Once()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
@@ -89,18 +104,5 @@ public final class NWWebSocketTransport: FrameTransport, @unchecked Sendable {
 
     public func close() {
         connection.cancel()
-    }
-}
-
-/// Lets exactly one of several callbacks resume a continuation.
-private final class Once: @unchecked Sendable {
-    private let lock = NSLock()
-    private var claimed = false
-
-    func claim() -> Bool {
-        lock.withLock {
-            defer { claimed = true }
-            return !claimed
-        }
     }
 }

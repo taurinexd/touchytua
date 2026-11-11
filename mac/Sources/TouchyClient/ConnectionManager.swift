@@ -95,6 +95,7 @@ public final class ConnectionManager {
     }
 
     /// Pairs with the Mac whose QR says `url`, replacing the current one.
+    /// Returns with `status` either `connected` or `failed`.
     public func pair(url: String) async {
         guard let payload = try? PairingPayload.parse(url: url) else {
             status = .failed(Self.notAPairingCodeMessage)
@@ -115,6 +116,8 @@ public final class ConnectionManager {
             store.save(record)
             macName = record.macName
             state = ClientState()
+            // Set here too, so that `pair` returns with its outcome known.
+            status = .connected(via: Endpoint(endpoint)?.label ?? endpoint)
             runner = Task { [weak self] in await self?.run(record, established: (link, endpoint)) }
         case .rejected:
             status = .failed(Self.qrExpiredMessage)
@@ -159,30 +162,70 @@ public final class ConnectionManager {
 
     // MARK: the link
 
-    private enum Outcome {
+    private enum Outcome: Sendable {
         case connected(PhoneLink, endpoint: String)
         /// The paired Mac itself said no.
         case rejected
         case unreachable
     }
 
-    /// One round over the Mac's addresses, in order.
+    /// One attempt to reach the Mac.
+    ///
+    /// Pairing goes through the QR's addresses one at a time: the secret
+    /// works once, so of two hellos sent together the Mac would refuse one.
+    /// Reconnecting tries every address at once, plus the local network,
+    /// and keeps the first that answers: an address that leads nowhere
+    /// (the home Wi-Fi one, when away) then costs nothing.
     private func reach(_ record: PairingRecord, secret: Data?) async -> Outcome {
         guard let phoneKey = try? store.phoneKey() else { return .unreachable }
-        for endpoint in record.endpoints {
-            if Task.isCancelled { break }
-            do {
-                let link = try await Self.open(
-                    endpoint, dial: dial, phoneKey: phoneKey, macKey: record.macKey,
-                    secret: secret, timeout: timing.connectTimeout)
-                return .connected(link, endpoint: endpoint)
-            } catch LinkError.rejected {
-                return .rejected
-            } catch {
-                continue
+        let (dial, macKey, timeout) = (dial, record.macKey, timing.connectTimeout)
+        guard secret == nil else {
+            for endpoint in record.endpoints {
+                if Task.isCancelled { break }
+                let attempt = await Self.attempt(
+                    endpoint, dial: dial, phoneKey: phoneKey, macKey: macKey, secret: secret, timeout: timeout)
+                if case .unreachable = attempt { continue }
+                return attempt
             }
+            return .unreachable
         }
-        return .unreachable
+        let candidates = [Endpoint.bonjour(forMacKey: macKey).text] + record.endpoints
+        return await withTaskGroup(of: Outcome.self) { group in
+            for endpoint in candidates {
+                group.addTask {
+                    await Self.attempt(
+                        endpoint, dial: dial, phoneKey: phoneKey, macKey: macKey, secret: nil, timeout: timeout)
+                }
+            }
+            var outcome = Outcome.unreachable
+            for await attempt in group {
+                switch (attempt, outcome) {
+                case (.connected, .unreachable), (.rejected, .unreachable):
+                    outcome = attempt
+                    group.cancelAll()
+                case let (.connected(late, _), _):
+                    await late.close()
+                default:
+                    break
+                }
+            }
+            return outcome
+        }
+    }
+
+    private nonisolated static func attempt(
+        _ endpoint: String, dial: @escaping Dial, phoneKey: Curve25519.KeyAgreement.PrivateKey,
+        macKey: Data, secret: Data?, timeout: Duration
+    ) async -> Outcome {
+        do {
+            let link = try await open(
+                endpoint, dial: dial, phoneKey: phoneKey, macKey: macKey, secret: secret, timeout: timeout)
+            return .connected(link, endpoint: endpoint)
+        } catch LinkError.rejected {
+            return .rejected
+        } catch {
+            return .unreachable
+        }
     }
 
     private struct TimedOut: Error {}

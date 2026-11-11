@@ -110,14 +110,42 @@ final class Pauses: @unchecked Sendable {
         #expect(ConnectionManager.Timing().backoff == [1, 2, 4, 8, 15].map(Duration.seconds))
     }
 
-    @Test func addressesAreTriedInOrderAndASilentOneIsGivenUp() async {
+    /// Away from home the Wi-Fi address goes nowhere: Tailscale must not wait for it.
+    @Test func aSilentAddressDoesNotHoldUpTheOthers() async {
         let mac = pairedMac(endpoints: [lan, ts])
         network.set(lan, .silent)
         network.set(ts, .mac(mac))
+        var timing = ConnectionManager.Timing.fast
+        timing.connectTimeout = .seconds(5)
+        let manager = manager(timing)
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually(within: .seconds(1)) { manager.status == .connected(via: "Tailscale") })
+        #expect(Set(network.dialed) == [Endpoint.bonjour(forMacKey: mac.publicKey).text, lan, ts])
+    }
+
+    /// The router gave the Mac a new address since the QR was scanned.
+    @Test func theMacIsFoundOnTheLocalNetworkAfterItsAddressChanged() async {
+        let mac = pairedMac(endpoints: [lan])
+        network.set(Endpoint.bonjour(forMacKey: mac.publicKey).text, .mac(mac))
         let manager = manager()
         defer { manager.stop() }
         manager.start()
-        #expect(await eventually { manager.status == .connected(via: "Tailscale") })
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+    }
+
+    /// The QR secret works once: two hellos at the same time would make the
+    /// Mac refuse the second, so pairing goes one address at a time.
+    @Test func pairingGivesUpOnASilentAddressAndTriesTheNext() async {
+        var mac = FakeMac()
+        mac.pendingSecret = secret
+        network.set(lan, .silent)
+        network.set(ts, .mac(mac))
+        let payload = PairingPayload(v: 1, macKey: mac.publicKey, secret: secret, endpoints: [lan, ts], macName: "Studio")
+        let manager = manager()
+        defer { manager.stop() }
+        await manager.pair(url: payload.url())
+        #expect(manager.status == .connected(via: "Tailscale"))
         #expect(network.dialed == [lan, ts])
     }
 
@@ -300,22 +328,30 @@ extension ConnectionManager.Timing {
 }
 
 @Suite struct EndpointTests {
-    @Test func readsTheAddressesWrittenInTheQR() throws {
-        let lan = try #require(Endpoint("lan:192.168.1.20:47311"))
-        #expect(lan.route == .lan)
-        #expect(lan.host == "192.168.1.20")
-        #expect(lan.port == 47311)
-        #expect(lan.label == "Wi-Fi")
-        let ts = try #require(Endpoint("ts:mac.tail1234.ts.net:47311"))
-        #expect(ts.route == .tailscale)
-        #expect(ts.host == "mac.tail1234.ts.net")
-        #expect(ts.label == "Tailscale")
+    @Test func readsTheAddressesWrittenInTheQR() {
+        #expect(Endpoint("lan:192.168.1.20:47311") == .lan(host: "192.168.1.20", port: 47311))
+        #expect(Endpoint("ts:mac.tail1234.ts.net:47311") == .tailscale(host: "mac.tail1234.ts.net", port: 47311))
+        #expect(Endpoint("lan:192.168.1.20:47311")?.label == "Wi-Fi")
+        #expect(Endpoint("ts:mac.tail1234.ts.net:47311")?.label == "Tailscale")
     }
 
-    @Test func keepsTheColonsOfAnIPv6Address() throws {
-        let v6 = try #require(Endpoint("lan:fe80::1:47311"))
-        #expect(v6.host == "fe80::1")
-        #expect(v6.port == 47311)
+    @Test func keepsTheColonsOfAnIPv6Address() {
+        #expect(Endpoint("lan:fe80::1:47311") == .lan(host: "fe80::1", port: 47311))
+    }
+
+    /// Not in the QR: the phone derives it from the Mac's key.
+    @Test func bonjourNamesTheMacByItsKeyNotItsAddress() {
+        let key = Data(repeating: 3, count: 32)
+        let endpoint = Endpoint.bonjour(forMacKey: key)
+        #expect(endpoint == .bonjour(id: Discovery.id(forMacKey: key)))
+        #expect(Endpoint(endpoint.text) == endpoint)
+        #expect(endpoint.label == "Wi-Fi")
+    }
+
+    @Test func writesBackWhatItRead() {
+        for text in ["lan:192.168.1.20:47311", "ts:mac.tail1234.ts.net:47311", "lan:fe80::1:47311"] {
+            #expect(Endpoint(text)?.text == text)
+        }
     }
 
     @Test func refusesWhatItCannotRead() {
@@ -323,5 +359,6 @@ extension ConnectionManager.Timing {
         #expect(Endpoint("carrier-pigeon:host:1") == nil)
         #expect(Endpoint("lan:host:notaport") == nil)
         #expect(Endpoint("lan::47311") == nil)
+        #expect(Endpoint("bonjour:") == nil)
     }
 }

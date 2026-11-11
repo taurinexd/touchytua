@@ -9,11 +9,20 @@ final class EchoServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "echo-server")
     private var connections: [NWConnection] = []
 
-    init() throws {
+    static let bonjourType = "_touchytua-test._tcp"
+
+    /// With `bonjourID`, announces itself the way the daemon does.
+    init(bonjourID: String? = nil) throws {
         let parameters = NWParameters.tcp
         parameters.defaultProtocolStack.applicationProtocols.insert(NWProtocolWebSocket.Options(), at: 0)
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        // A service announced from a loopback-only listener is found but
+        // never connects, so the announced server listens everywhere.
+        if bonjourID == nil { parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any) }
         listener = try NWListener(using: parameters)
+        if let bonjourID {
+            listener.service = NWListener.Service(
+                name: "test-\(bonjourID)", type: Self.bonjourType, txtRecord: NWTXTRecord(["id": bonjourID]))
+        }
     }
 
     /// Starts listening; returns the port.
@@ -62,7 +71,54 @@ final class EchoServer: @unchecked Sendable {
     }
 }
 
+struct TookTooLong: Error {}
+
+/// Runs `work`, cancelling it and failing if it takes longer than `limit`.
+func giveUp<T: Sendable>(after limit: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T?.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(for: limit)
+            return nil
+        }
+        defer { group.cancelAll() }
+        guard let first = try await group.next(), let value = first else { throw TookTooLong() }
+        return value
+    }
+}
+
 @Suite struct NWWebSocketTransportTests {
+    private func randomID() -> String {
+        (0..<16).map { _ in String("0123456789abcdef".randomElement()!) }.joined()
+    }
+
+    @Test func findsItsMacAmongSeveralOnTheLocalNetwork() async throws {
+        let (mine, other) = (randomID(), randomID())
+        let stranger = try EchoServer(bonjourID: other)
+        let server = try EchoServer(bonjourID: mine)
+        defer { stranger.stop(); server.stop() }
+        _ = try await stranger.start()
+        _ = try await server.start()
+        let echoed = try await giveUp(after: .seconds(10)) {
+            let found = try await BonjourBrowser.find(id: mine, type: EchoServer.bonjourType)
+            #expect("\(found)".contains("test-\(mine)"))
+            let transport = try await NWWebSocketTransport.connect(to: found)
+            defer { transport.close() }
+            transport.send(Data("over bonjour".utf8))
+            return try await transport.receive()
+        }
+        #expect(echoed == Data("over bonjour".utf8))
+    }
+
+    @Test func lookingForAMacThatIsNotThereEndsWhenCancelled() async throws {
+        let id = randomID()
+        let looking = Task { try await BonjourBrowser.find(id: id, type: EchoServer.bonjourType) }
+        try await Task.sleep(for: .milliseconds(100))
+        looking.cancel()
+        let result = await looking.result
+        #expect(throws: (any Error).self) { try result.get() }
+    }
+
     @Test func framesGoOutAndComeBackInOrder() async throws {
         let server = try EchoServer()
         defer { server.stop() }

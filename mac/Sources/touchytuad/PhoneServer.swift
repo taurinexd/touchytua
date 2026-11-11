@@ -9,7 +9,6 @@ import TouchyKit
 /// First binary message: handshake hello. Then SecureChannel frames of JSON.
 final class PhoneServer: @unchecked Sendable {
     static let port: UInt16 = 47311
-    static let bonjourType = "_touchytua._tcp"
 
     private let store: PairingStore
     private let router: PhoneRouter
@@ -56,7 +55,14 @@ final class PhoneServer: @unchecked Sendable {
 
     private func advertise(port: UInt16) {
         var ref: DNSServiceRef?
-        let status = DNSServiceRegister(&ref, 0, 0, macName, Self.bonjourType, nil, nil, port.bigEndian, 0, nil, nil, nil)
+        // The id lets a paired phone pick this Mac among several.
+        let txt = (try? store.macKey()).map {
+            Discovery.txtRecord(id: Discovery.id(forMacKey: $0.publicKey.rawRepresentation))
+        } ?? Data()
+        let status = txt.withUnsafeBytes {
+            DNSServiceRegister(&ref, 0, 0, macName, Discovery.serviceType, nil, nil, port.bigEndian,
+                               UInt16($0.count), $0.baseAddress, nil, nil)
+        }
         guard status == kDNSServiceErr_NoError, let ref else { Log.info("bonjour: register failed (\(status))"); return }
         DNSServiceSetDispatchQueue(ref, DispatchQueue(label: "touchytua.bonjour"))
         bonjour = ref

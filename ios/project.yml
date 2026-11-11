@@ -1,0 +1,84 @@
+# Xcode project spec. Generate with `xcodegen` (see the Makefile target `ios`).
+name: Touchytua
+options:
+  bundleIdPrefix: com.taurinexd
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+packages:
+  # The client core lives in the Swift package shared with the Mac side.
+  Core:
+    path: ../mac
+targets:
+  Touchytua:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+    dependencies:
+      - package: Core
+        product: TouchyClient
+      - package: Core
+        product: TouchyProtocol
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua
+        PRODUCT_NAME: touchytua
+        MARKETING_VERSION: 0.1.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: touchytua
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIUserInterfaceStyle: Dark
+        UIAppFonts:
+          - SpaceGrotesk.ttf
+          - Geist.ttf
+        CFBundleURLTypes:
+          - CFBundleURLName: com.taurinexd.touchytua.pair
+            CFBundleURLSchemes:
+              - touchytua
+        NSBonjourServices:
+          - _touchytua._tcp
+        NSLocalNetworkUsageDescription: touchytua connects to your Mac over your Wi-Fi network to show and control your Claude Code sessions.
+        NSCameraUsageDescription: touchytua uses the camera to scan the pairing code shown on your Mac.
+        ITSAppUsesNonExemptEncryption: false
+  # A scripted finger for end-to-end runs in the Simulator (see DriverTests).
+  TouchytuaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Touchytua
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.taurinexd.touchytua.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        TEST_TARGET_NAME: Touchytua
+schemes:
+  Touchytua:
+    build:
+      targets:
+        Touchytua: all
+        TouchytuaUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TouchytuaUITests

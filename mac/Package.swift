@@ -27,7 +27,8 @@ let package = Package(
         // User-facing CLI: pair, doctor, daemon --ensure, statusline.
         .executableTarget(name: "touchytua", dependencies: ["TouchyKit"]),
         // CLI that simulates the phone, for end-to-end verification.
-        .executableTarget(name: "touchytua-client", dependencies: ["TouchyKit"]),
+        // Built only on what the iOS app links, so it exercises the same code.
+        .executableTarget(name: "touchytua-client", dependencies: ["TouchyClient", "TouchyProtocol"]),
         // The client is tested against the real Mac-side router and hub.
         .testTarget(name: "TouchyClientTests", dependencies: ["TouchyClient", "TouchyKit", "TouchyProtocol"]),
         .testTarget(name: "TouchyKitTests", dependencies: ["TouchyKit", "TouchyProtocol"], exclude: ["Fixtures"]),

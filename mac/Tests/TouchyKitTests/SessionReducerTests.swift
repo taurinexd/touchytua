@@ -25,6 +25,47 @@ private func envelope(
         #expect(s?.title == "app")
     }
 
+    /// Until the first round ends there is no transcript title: without this
+    /// two sessions in one folder look the same while they wait for approval.
+    @Test func theFirstPromptNamesAnUntitledSession() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("SessionStart", at: 100), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("  Fix the cart total\n\nIt is off by one cent."),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Fix the cart total")
+    }
+
+    @Test func aLaterPromptDoesNotRenameTheSession() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("Fix the cart")]), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 102, extra: ["prompt": .string("now the tests")]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Fix the cart")
+    }
+
+    @Test func aPromptFromThePhoneIsNamedWithoutItsPrefix() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(PhoneRouter.promptPrefix + "Run the tests"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "Run the tests")
+    }
+
+    @Test func aLongPromptIsCutForTheTitle() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(String(repeating: "word ", count: 100)),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title.count == 120)
+    }
+
+    @Test func anEmptyPromptKeepsTheFolderName() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("  \n ")]), to: &sessions)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 102), to: &sessions)
+        #expect(sessions["s1"]?.title == "app")
+    }
+
     @Test func promptStartsRound() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("SessionStart", at: 100), to: &sessions)

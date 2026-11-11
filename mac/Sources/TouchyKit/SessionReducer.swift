@@ -8,6 +8,17 @@ public enum SessionReducer {
         "Stop", "StopFailure", "SessionEnd",
     ]
 
+    /// The first line of a prompt, without the phone prefix, at most 120
+    /// characters. Nil when nothing readable is left.
+    static func title(fromPrompt prompt: String?) -> String? {
+        guard var text = prompt else { return nil }
+        if text.hasPrefix(PhoneRouter.promptPrefix) { text.removeFirst(PhoneRouter.promptPrefix.count) }
+        let line = text.split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+        return line.map { String($0.prefix(120)) }
+    }
+
     /// Notification types that mean "the session waits for the user".
     static let waitingNotifications: Set<String> = [
         "permission_prompt", "elicitation_dialog", "agent_needs_input",
@@ -39,6 +50,13 @@ public enum SessionReducer {
         case "UserPromptSubmit":
             session.state = .working
             session.round = Round(startedAt: at)
+            // A provisional title until the transcript gives a better one
+            // at the end of the round: the folder name alone cannot tell
+            // two sessions of one project apart.
+            if session.title == (session.cwd as NSString).lastPathComponent,
+               let title = Self.title(fromPrompt: envelope.event["prompt"]?.stringValue) {
+                session.title = title
+            }
         case "PreToolUse", "PostToolUse", "PostToolUseFailure":
             session.state = .working
         case "PermissionRequest":

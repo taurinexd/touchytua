@@ -1,0 +1,137 @@
+import Foundation
+import Testing
+@testable import TouchyClient
+import TouchyProtocol
+
+@Suite struct FormatTests {
+    @Test func durationsReadLikeTheReference() {
+        #expect(Format.duration(0) == "0s")
+        #expect(Format.duration(42.9) == "42s")
+        #expect(Format.duration(95) == "1m35s")
+        #expect(Format.duration(190) == "3m10s")
+        #expect(Format.duration(3600) == "1h00m")
+        #expect(Format.duration(3905) == "1h05m")
+        #expect(Format.duration(-5) == "0s")
+    }
+
+    @Test func tokensAreRounded() {
+        #expect(Format.tokens(0) == "0 token")
+        #expect(Format.tokens(850) == "850 token")
+        #expect(Format.tokens(1_999) == "2k token")
+        #expect(Format.tokens(3_200) == "3k token")
+        #expect(Format.tokens(999_600) == "1.0M token")
+        #expect(Format.tokens(1_300_000) == "1.3M token")
+    }
+
+    @Test func costKeepsCentsOnlyWhenSmall() {
+        #expect(Format.cost(0) == "$0.00")
+        #expect(Format.cost(1.234) == "$1.23")
+        #expect(Format.cost(12.36) == "$12.4")
+        #expect(Format.cost(284.61) == "$284.6")
+    }
+
+    @Test func percentHasNoDecimals() {
+        #expect(Format.percent(55.4) == "55%")
+        #expect(Format.percent(9) == "9%")
+        #expect(Format.percent(99.6) == "100%")
+    }
+}
+
+@Suite struct RequestPresentationTests {
+    private func request(_ tool: String, _ input: [String: JSONValue], kind: PendingRequest.Kind = .permission) -> PendingRequest {
+        PendingRequest(id: "r", sessionId: "s", kind: kind, toolName: tool, toolInput: input, createdAt: Date(timeIntervalSince1970: 0))
+    }
+
+    @Test func aShellCommandShowsTheCommand() {
+        #expect(request("Bash", ["command": .string("rm -rf build"), "description": .string("Clean")]).detail == "rm -rf build")
+    }
+
+    @Test func aFileToolShowsThePath() {
+        #expect(request("Write", ["file_path": .string("/p/a.swift"), "content": .string("…")]).detail == "/p/a.swift")
+        #expect(request("Edit", ["file_path": .string("/p/b.swift"), "old_string": .string("x")]).detail == "/p/b.swift")
+    }
+
+    @Test func webToolsShowWhereTheyGo() {
+        #expect(request("WebFetch", ["url": .string("https://example.com"), "prompt": .string("read")]).detail == "https://example.com")
+        #expect(request("WebSearch", ["query": .string("swift actors")]).detail == "swift actors")
+    }
+
+    @Test func aPlanShowsThePlan() {
+        #expect(request("ExitPlanMode", ["plan": .string("1. Do it")]).detail == "1. Do it")
+    }
+
+    /// Tools this build has never heard of (MCP ones, future ones) still say something.
+    @Test func anUnknownToolListsItsSimpleInputs() {
+        let r = request("mcp__db__query", ["sql": .string("select 1"), "limit": .number(10), "dry": .bool(true), "opts": .object([:])])
+        #expect(r.detail == "dry: true\nlimit: 10\nsql: select 1")
+    }
+
+    @Test func noInputShowsNothing() {
+        #expect(request("Mystery", [:]).detail == "")
+    }
+
+    @Test func questionsAreReadFromTheToolInput() {
+        let r = request("AskUserQuestion", ["questions": .array([.object([
+            "question": .string("Which one?"), "header": .string("Pick"), "multiSelect": .bool(true),
+            "options": .array([
+                .object(["label": .string("Alpha"), "description": .string("The first")]),
+                .object(["label": .string("Beta")]),
+            ]),
+        ])])], kind: .question)
+        #expect(r.questions == [Question(text: "Which one?", header: "Pick", multiSelect: true, options: [
+            Question.Option(label: "Alpha", description: "The first"), Question.Option(label: "Beta", description: nil),
+        ])])
+    }
+
+    @Test func aRequestWithoutQuestionsHasNone() {
+        #expect(request("Bash", ["command": .string("ls")]).questions.isEmpty)
+        #expect(request("AskUserQuestion", ["questions": .string("oops")], kind: .question).questions.isEmpty)
+    }
+
+    @Test func answersAreKeyedByQuestionAndKeepTheOptionOrder() {
+        let questions = [
+            Question(text: "Which one?", header: nil, multiSelect: false, options: [.init(label: "A", description: nil), .init(label: "B", description: nil)]),
+            Question(text: "Which ones?", header: nil, multiSelect: true, options: [.init(label: "X", description: nil), .init(label: "Y", description: nil), .init(label: "Z", description: nil)]),
+        ]
+        let picked: [String: Set<String>] = ["Which one?": ["B"], "Which ones?": ["Z", "X"]]
+        #expect(Question.answers(to: questions, picked: picked) == ["Which one?": "B", "Which ones?": "X, Z"])
+    }
+
+    @Test func answersAreNotReadyUntilEveryQuestionHasOne() {
+        let questions = [
+            Question(text: "One?", header: nil, multiSelect: false, options: [.init(label: "A", description: nil)]),
+            Question(text: "Two?", header: nil, multiSelect: false, options: [.init(label: "B", description: nil)]),
+        ]
+        #expect(Question.answers(to: questions, picked: ["One?": ["A"]]) == nil)
+        #expect(Question.answers(to: questions, picked: ["One?": ["A"], "Two?": []]) == nil)
+        #expect(Question.answers(to: [], picked: [:]) == nil)
+    }
+}
+
+@Suite struct SessionPresentationTests {
+    private func session(_ title: String, round: Round? = nil) -> Session {
+        Session(id: "s", title: title, cwd: "/Users/me/Code/shop", state: .working, round: round, lastEventAt: Date(timeIntervalSince1970: 0))
+    }
+
+    @Test func theRowShowsOneLineOfTheTitle() {
+        #expect(session("Fix the cart\n\nand the checkout too").headline == "Fix the cart")
+        #expect(session("  \n  Second line first ").headline == "Second line first")
+    }
+
+    @Test func aSessionWithoutATitleIsNamedAfterItsFolder() {
+        #expect(session("").headline == "shop")
+        #expect(session("   ").headline == "shop")
+    }
+
+    @Test func aFinishedRoundSaysHowLongAndHowMuch() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let round = Round(startedAt: start, endedAt: start.addingTimeInterval(95), tokens: 2_100, summary: "Done")
+        #expect(round.caption(now: start.addingTimeInterval(500)) == "Worked for 1m35s · 2k token")
+    }
+
+    @Test func aRunningRoundCountsUp() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(12)) == "Working for 12s")
+        #expect(Round(startedAt: start, tokens: 900).caption(now: start.addingTimeInterval(12)) == "Working for 12s · 900 token")
+    }
+}

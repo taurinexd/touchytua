@@ -71,6 +71,13 @@ final class EchoServer: @unchecked Sendable {
     }
 }
 
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var isSet: Bool { lock.withLock { value } }
+    func set() { lock.withLock { value = true } }
+}
+
 struct TookTooLong: Error {}
 
 /// Runs `work`, cancelling it and failing if it takes longer than `limit`.
@@ -176,6 +183,51 @@ func giveUp<T: Sendable>(after limit: Duration, _ work: @escaping @Sendable () a
         waiting.cancel()
         let result = await waiting.result
         #expect(throws: (any Error).self) { try result.get() }
+    }
+
+    // The next three: cancellation that lands before the wait has begun.
+    // Network.framework never calls back on something cancelled before it
+    // started, so each of these used to wait forever. It happens for real
+    // when one route wins the race while another is still setting up.
+
+    @Test func aConnectCancelledBeforeItStartsStillEnds() async throws {
+        let server = try EchoServer()
+        defer { server.stop() }
+        let endpoint = try #require(Endpoint("lan:127.0.0.1:\(try await server.start())"))
+        let finished = Flag()
+        let connecting = Task {
+            _ = try? await NWWebSocketTransport.connect(to: endpoint)
+            finished.set()
+        }
+        connecting.cancel()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(finished.isSet)
+    }
+
+    @Test func aSearchCancelledBeforeItStartsStillEnds() async throws {
+        let finished = Flag()
+        let looking = Task {
+            _ = try? await BonjourBrowser.find(id: "0000000000000000", type: EchoServer.bonjourType)
+            finished.set()
+        }
+        looking.cancel()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(finished.isSet)
+    }
+
+    @Test func aReceiveCancelledBeforeItStartsStillEnds() async throws {
+        let server = try EchoServer()
+        defer { server.stop() }
+        let port = try await server.start()
+        let transport = try await NWWebSocketTransport.connect(to: try #require(Endpoint("lan:127.0.0.1:\(port)")))
+        let finished = Flag()
+        let waiting = Task {
+            _ = try? await transport.receive()
+            finished.set()
+        }
+        waiting.cancel()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(finished.isSet)
     }
 
     @Test func cancellingTheTaskEndsAPendingConnect() async throws {

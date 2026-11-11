@@ -37,28 +37,21 @@ public final class NWWebSocketTransport: FrameTransport, @unchecked Sendable {
         webSocket.autoReplyPing = true
         parameters.defaultProtocolStack.applicationProtocols.insert(webSocket, at: 0)
         let connection = NWConnection(to: endpoint, using: parameters)
-        let once = Once()
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                connection.stateUpdateHandler = { state in
-                    switch state {
-                    case .ready:
-                        if once.claim() { continuation.resume() }
-                    case let .failed(error), let .waiting(error):
-                        if once.claim() {
-                            connection.cancel()
-                            continuation.resume(throwing: error)
-                        }
-                    case .cancelled:
-                        if once.claim() { continuation.resume(throwing: LinkError.closed) }
-                    default:
-                        break
-                    }
-                }
-                connection.start(queue: DispatchQueue(label: "touchytua.transport"))
+        let ready = Waiter<Void>()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .ready: ready.resolve(.success(()))
+            case let .failed(error), let .waiting(error): ready.resolve(.failure(error))
+            case .cancelled: ready.resolve(.failure(LinkError.closed))
+            default: break
             }
-        } onCancel: {
+        }
+        connection.start(queue: DispatchQueue(label: "touchytua.transport"))
+        do {
+            try await ready.value()
+        } catch {
             connection.cancel()
+            throw error
         }
         connection.stateUpdateHandler = nil
         return NWWebSocketTransport(connection)
@@ -72,32 +65,32 @@ public final class NWWebSocketTransport: FrameTransport, @unchecked Sendable {
     }
 
     public func receive() async throws -> Data {
-        let connection = self.connection
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                Self.nextDataFrame(on: connection, continuation)
-            }
-        } onCancel: {
+        let frame = Waiter<Data>()
+        Self.nextDataFrame(on: connection, into: frame)
+        do {
+            return try await frame.value()
+        } catch is CancellationError {
             // Network.framework has no way to withdraw one receive.
             connection.cancel()
+            throw CancellationError()
         }
     }
 
-    private static func nextDataFrame(on connection: NWConnection, _ continuation: CheckedContinuation<Data, any Error>) {
+    private static func nextDataFrame(on connection: NWConnection, into frame: Waiter<Data>) {
         connection.receiveMessage { data, context, _, error in
             if let error {
-                continuation.resume(throwing: error)
+                frame.resolve(.failure(error))
                 return
             }
             let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
             switch metadata?.opcode {
             case .binary, .text:
-                continuation.resume(returning: data ?? Data())
+                frame.resolve(.success(data ?? Data()))
             case .ping, .pong, .cont:
-                nextDataFrame(on: connection, continuation)
+                nextDataFrame(on: connection, into: frame)
             default:
                 // A close frame, or the stream ended without one.
-                continuation.resume(throwing: LinkError.closed)
+                frame.resolve(.failure(LinkError.closed))
             }
         }
     }

@@ -2,9 +2,10 @@
 
 Control your Claude Code sessions from your iPhone: live status of every session, approve or deny permission requests, answer questions, send the next prompt.
 
-This repository holds the Mac side:
+This repository holds both sides:
 - `plugin/` — the Claude Code plugin (hooks, `/pair`, `/doctor`, prebuilt universal binaries);
-- `mac/` — Swift package: `TouchyKit` (models, protocol, crypto, shared with the iOS app), `touchytuad` (daemon), `touchytua-hook`, `touchytua-statusline`, `touchytua` (CLI), `touchytua-client` (phone simulator for testing).
+- `mac/` — Swift package: `TouchyProtocol` (messages and crypto, shared with the phone), `TouchyKit` (Mac side: sessions, requests, pairing), `TouchyClient` (phone side: connection, state, presentation), `touchytuad` (daemon), `touchytua-hook`, `touchytua-statusline`, `touchytua` (CLI), `touchytua-client` (phone simulator for testing);
+- `ios/` — the iPhone app (SwiftUI), built on `TouchyClient`.
 
 ## Install
 
@@ -22,7 +23,9 @@ Scan the QR code with the touchytua iOS app (coming soon on TestFlight). To use 
 - If the daemon is not running, Claude Code behaves exactly as without touchytua.
 
 ## Develop
-`make test` · `make hook-smoke` · `make statusline-smoke` · `Scripts/build-plugin.sh`
+`make test` · `make hook-smoke` · `make statusline-smoke` · `make daemon-smoke` · `Scripts/build-plugin.sh`
+
+The iPhone app needs Xcode and XcodeGen: `make ios` generates the project. To run it on a device, copy `ios/Local.xcconfig.example` to `ios/Local.xcconfig` and set your team.
 
 Some code is ported from [Meowtch](https://github.com/taurinexd/meowtch) (MIT, same author).
 

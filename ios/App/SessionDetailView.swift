@@ -32,6 +32,7 @@ struct SessionDetailView: View {
                 Text(session.headline)
                     .font(Theme.display(20, .bold))
                     .foregroundStyle(Theme.text)
+                    .lineLimit(2)
                 ForEach(connection.state.requests(for: session.id)) { request in
                     if request.kind == .question, !request.questions.isEmpty {
                         QuestionCard(request: request)
@@ -40,7 +41,7 @@ struct SessionDetailView: View {
                     }
                 }
                 if let round = session.round {
-                    RoundView(round: round)
+                    RoundView(round: round, waiting: session.state == .waiting)
                 } else {
                     Text("Nothing has happened in this session yet.")
                         .font(Theme.body(15))
@@ -69,6 +70,8 @@ struct SessionDetailView: View {
 /// "This Round": how long, how much, and what Claude said.
 struct RoundView: View {
     let round: Round
+    /// The session is stopped on a request for the person.
+    var waiting = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -77,30 +80,20 @@ struct RoundView: View {
                     .font(Theme.display(15, .bold))
                     .foregroundStyle(Theme.green)
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    Text(round.caption(now: timeline.date))
+                    Text(round.caption(now: timeline.date, waiting: waiting))
                         .font(Theme.body(14))
                         .foregroundStyle(Theme.textTertiary)
                         .monospacedDigit()
                 }
             }
             if let summary = round.summary, !summary.isEmpty {
-                Text(Self.rendered(summary))
-                    .font(Theme.body(16))
-                    .foregroundStyle(Theme.text)
-                    .lineSpacing(4)
-                    .textSelection(.enabled)
-            } else if round.endedAt == nil {
+                MarkdownView(text: summary)
+            } else if round.endedAt == nil, !waiting {
                 Text("Working…")
                     .font(Theme.body(16))
                     .foregroundStyle(Theme.textSecondary)
             }
         }
-    }
-
-    /// Inline Markdown only (bold, italics, code, links), line breaks kept.
-    private static func rendered(_ text: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
     }
 }
 
@@ -109,6 +102,7 @@ struct PromptBar: View {
     @Environment(ConnectionManager.self) private var connection
     let sessionId: String
     @State private var text = ""
+    @FocusState private var typing: Bool
 
     private var connected: Bool {
         if case .connected = connection.status { return true }
@@ -131,12 +125,14 @@ struct PromptBar: View {
                     .font(Theme.body(16))
                     .foregroundStyle(Theme.text)
                     .lineLimit(1...5)
+                    .focused($typing)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .card(radius: 20)
                 Button {
                     let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     text = ""
+                    typing = false
                     Task { await connection.prompt(sessionId: sessionId, text: prompt) }
                 } label: {
                     Image(systemName: "arrow.up")

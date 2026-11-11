@@ -39,7 +39,8 @@ extension Session {
 
 extension Round {
     /// "Worked for 1m35s · 2k token", or "Working for 12s" while it runs.
-    public func caption(now: Date) -> String {
+    public func caption(now: Date, waiting: Bool = false) -> String {
+        if waiting, endedAt == nil { return "Paused for your answer" }
         let time = endedAt.map { "Worked for " + Format.duration($0.timeIntervalSince(startedAt)) }
             ?? "Working for " + Format.duration(now.timeIntervalSince(startedAt))
         return tokens.map { time + " · " + Format.tokens($0) } ?? time
@@ -116,5 +117,68 @@ extension PendingRequest {
                     return Question.Option(label: label, description: option.objectValue?["description"]?.stringValue)
                 })
         }
+    }
+}
+
+/// One block of an answer written in Markdown. Only what Claude's answers
+/// use day to day: headings, list items, fenced code and paragraphs.
+public enum MarkdownBlock: Equatable, Sendable {
+    case heading(level: Int, text: String)
+    case paragraph(String)
+    /// `marker` is "•" for a bullet, or the number as written ("3.").
+    case item(marker: String, text: String)
+    case code(String)
+
+    public static func parse(_ text: String) -> [MarkdownBlock] {
+        var blocks: [MarkdownBlock] = []
+        var paragraph: [String] = []
+        var code: [String]?
+        func endParagraph() {
+            if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))) }
+            paragraph = []
+        }
+        for raw in text.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") {
+                if let open = code {
+                    blocks.append(.code(open.joined(separator: "\n")))
+                    code = nil
+                } else {
+                    endParagraph()
+                    code = []
+                }
+            } else if code != nil {
+                code?.append(raw)
+            } else if line.isEmpty {
+                endParagraph()
+            } else if let heading = heading(line) {
+                endParagraph()
+                blocks.append(heading)
+            } else if let item = item(line) {
+                endParagraph()
+                blocks.append(item)
+            } else {
+                paragraph.append(line)
+            }
+        }
+        if let open = code { blocks.append(.code(open.joined(separator: "\n"))) }
+        endParagraph()
+        return blocks
+    }
+
+    private static func heading(_ line: String) -> MarkdownBlock? {
+        let hashes = line.prefix { $0 == "#" }
+        guard (1...6).contains(hashes.count), line.dropFirst(hashes.count).hasPrefix(" ") else { return nil }
+        return .heading(level: hashes.count, text: line.dropFirst(hashes.count).trimmingCharacters(in: .whitespaces))
+    }
+
+    private static func item(_ line: String) -> MarkdownBlock? {
+        if line.hasPrefix("- ") || line.hasPrefix("* ") {
+            return .item(marker: "•", text: line.dropFirst(2).trimmingCharacters(in: .whitespaces))
+        }
+        let digits = line.prefix { $0.isNumber }
+        let rest = line.dropFirst(digits.count)
+        guard !digits.isEmpty, digits.count <= 3, rest.hasPrefix(". ") || rest.hasPrefix(") ") else { return nil }
+        return .item(marker: digits + ".", text: rest.dropFirst(2).trimmingCharacters(in: .whitespaces))
     }
 }

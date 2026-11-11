@@ -16,7 +16,19 @@ public enum SessionReducer {
         let line = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty }
-        return line.map { String($0.prefix(120)) }
+        return line.map { clipped($0, to: 120) }
+    }
+
+    /// `text` in at most `limit` characters: cut at the last space when there
+    /// is one near the end, and marked with an ellipsis.
+    static func clipped(_ text: String, to limit: Int) -> String {
+        guard text.count > limit else { return text }
+        var kept = text.prefix(limit - 1)
+        if let space = kept.lastIndex(of: " "), kept.distance(from: space, to: kept.endIndex) <= 24 {
+            kept = kept[..<space]
+        }
+        while let last = kept.last, last == " " || last.isPunctuation { kept.removeLast() }
+        return kept + "…"
     }
 
     /// Notification types that mean "the session waits for the user".

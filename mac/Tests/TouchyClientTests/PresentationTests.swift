@@ -135,3 +135,55 @@ import TouchyProtocol
         #expect(Round(startedAt: start, tokens: 900).caption(now: start.addingTimeInterval(12)) == "Working for 12s · 900 token")
     }
 }
+
+@Suite struct MarkdownTests {
+    @Test func splitsAnAnswerIntoItsBlocks() {
+        let text = """
+        ## Titolo
+
+        Testo **uno**
+        continua
+
+        1. Primo
+        2. Secondo
+        - punto
+        * altro
+
+        ```sh
+        dig a.com
+          +short
+        ```
+        fine
+        """
+        #expect(MarkdownBlock.parse(text) == [
+            .heading(level: 2, text: "Titolo"),
+            .paragraph("Testo **uno**\ncontinua"),
+            .item(marker: "1.", text: "Primo"),
+            .item(marker: "2.", text: "Secondo"),
+            .item(marker: "•", text: "punto"),
+            .item(marker: "•", text: "altro"),
+            .code("dig a.com\n  +short"),
+            .paragraph("fine"),
+        ])
+    }
+
+    @Test func plainTextIsOneParagraph() {
+        #expect(MarkdownBlock.parse("PONG7") == [.paragraph("PONG7")])
+    }
+
+    @Test func aCodeBlockLeftOpenRunsToTheEnd() {
+        #expect(MarkdownBlock.parse("```\nls -la") == [.code("ls -la")])
+    }
+
+    @Test func hashesInsideAWordAreNotAHeading() {
+        #expect(MarkdownBlock.parse("#hashtag e 2.5 volte") == [.paragraph("#hashtag e 2.5 volte")])
+    }
+}
+
+@Suite struct WaitingCaptionTests {
+    @Test func aRoundWaitingOnThePersonDoesNotClaimToBeWorking() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: true) == "Paused for your answer")
+        #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: false) == "Working for 1m16s")
+    }
+}

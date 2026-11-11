@@ -92,27 +92,37 @@ struct SessionListView: View {
                 SessionRow(session: session)
             }
             .buttonStyle(.plain)
-            .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+            // No vertical inset: a swipe action is as tall as its row, and
+            // has to line up with the card.
+            .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
                 if let request = quickRequest(for: session) {
-                    Button("Approve") {
+                    Button {
                         Task { await connection.decide(request.id, allow: true) }
+                    } label: {
+                        Label("Approve", systemImage: "checkmark")
                     }
+                    .labelStyle(.iconOnly)
                     .tint(Theme.greenDeep)
                 }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                 if let request = quickRequest(for: session) {
-                    Button("Deny") {
+                    Button {
                         Task { await connection.decide(request.id, allow: false) }
+                    } label: {
+                        Label("Deny", systemImage: "xmark")
                     }
+                    .labelStyle(.iconOnly)
                     .tint(Theme.redDeep)
                 }
             }
         }
         .listStyle(.plain)
+        .listRowSpacing(10)
+        .contentMargins(.top, 6, for: .scrollContent)
         .scrollContentBackground(.hidden)
         .animation(.default, value: connection.state.sessions)
     }

@@ -56,7 +56,24 @@ private func envelope(
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
             "prompt": .string(String(repeating: "word ", count: 100)),
         ]), to: &sessions)
-        #expect(sessions["s1"]?.title.count == 120)
+        let title = sessions["s1"]?.title ?? ""
+        #expect(title.count <= 120)
+        #expect(title.hasSuffix("word…"))
+    }
+
+    @Test func aPromptThatFitsIsNotMarkedAsCut() {
+        var sessions: [String: Session] = [:]
+        let prompt = String(repeating: "a", count: 120)
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string(prompt)]), to: &sessions)
+        #expect(sessions["s1"]?.title == prompt)
+    }
+
+    @Test func aLongWordIsCutWhereItMust() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(String(repeating: "a", count: 300)),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == String(repeating: "a", count: 119) + "…")
     }
 
     @Test func anEmptyPromptKeepsTheFolderName() {

@@ -86,7 +86,7 @@ struct QuestionCard: View {
             .accessibilityLabel("Send answer")
         }
         .padding(14)
-        .card()
+        .card(glow: Theme.yellow)
     }
 
     private func optionRow(_ question: Question, index: Int, option: Question.Option) -> some View {

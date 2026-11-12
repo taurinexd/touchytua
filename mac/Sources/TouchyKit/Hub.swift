@@ -157,14 +157,32 @@ public actor Hub {
         guard let request = await pending.openRequests.first(where: { $0.id == requestId }) else { return false }
         let reply = HookReply.permission(
             allow: allow, message: message, toolName: request.toolName, toolInput: request.toolInput)
-        return await pending.resolve(id: requestId, reply: reply)
+        guard await pending.resolve(id: requestId, reply: reply) else { return false }
+        await resume(request.sessionId)
+        return true
+    }
+
+    /// Once its last request is answered a session is at work again. No
+    /// hook says so until the tool it was waiting for has finished, which
+    /// for a long command is a long time.
+    private func resume(_ id: String) async {
+        guard sessions[id]?.state == .waiting,
+              await !pending.openRequests.contains(where: { $0.sessionId == id }),
+              var session = sessions[id], session.state == .waiting else { return }
+        session.state = .working
+        sessions[id] = session
+        onChange(.session(session))
+        save()
     }
 
     /// The phone answered an AskUserQuestion.
     public func answer(requestId: String, answers: [String: String]) async -> Bool {
         guard let request = await pending.openRequests.first(where: { $0.id == requestId }),
               request.kind == .question else { return false }
-        return await pending.resolve(id: requestId, reply: HookReply.question(toolInput: request.toolInput, answers: answers))
+        let reply = HookReply.question(toolInput: request.toolInput, answers: answers)
+        guard await pending.resolve(id: requestId, reply: reply) else { return false }
+        await resume(request.sessionId)
+        return true
     }
 
     /// Statusline input forwarded by `touchytua-statusline`: per-session cost

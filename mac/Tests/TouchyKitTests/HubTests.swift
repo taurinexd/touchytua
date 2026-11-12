@@ -159,6 +159,53 @@ private final class Changes: @unchecked Sendable {
     }
 }
 
+@Suite struct HubResumeTests {
+    private func ask(_ hub: Hub, file: String, at: Double) -> Task<Data, Never> {
+        Task {
+            await hub.handle(env("PermissionRequest", at: at, extra: [
+                "tool_name": .string("Read"), "tool_input": .object(["file_path": .string(file)])]))
+        }
+    }
+
+    private func open(_ hub: Hub, _ count: Int) async -> [PendingRequest] {
+        for _ in 0..<400 where await hub.pending.openRequests.count != count {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return await hub.pending.openRequests
+    }
+
+    /// No hook fires between an approval and the end of the tool it
+    /// allowed: without this a long command would look like a pause.
+    @Test func approvingFromThePhonePutsTheSessionBackToWork() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let hook = ask(hub, file: "/a", at: 2)
+        let request = await open(hub, 1)[0]
+        #expect(await hub.sessions["s1"]?.state == .waiting)
+
+        #expect(await hub.decide(requestId: request.id, allow: true, message: nil))
+
+        #expect(await hub.sessions["s1"]?.state == .working)
+        _ = await hook.value
+    }
+
+    @Test func theSessionWaitsUntilItsLastRequestIsAnswered() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let first = ask(hub, file: "/a", at: 2)
+        _ = await open(hub, 1)
+        let second = ask(hub, file: "/b", at: 3)
+        let requests = await open(hub, 2)
+
+        #expect(await hub.decide(requestId: requests[0].id, allow: true, message: nil))
+        #expect(await hub.sessions["s1"]?.state == .waiting)
+        #expect(await hub.decide(requestId: requests[1].id, allow: false, message: nil))
+        #expect(await hub.sessions["s1"]?.state == .working)
+        _ = await first.value
+        _ = await second.value
+    }
+}
+
 @Suite struct HubActivityTests {
     private func tool(_ event: String, _ name: String, at: Double, input: [String: JSONValue] = [:],
                       response: JSONValue? = nil, transcript: String? = nil) -> HookEnvelope {

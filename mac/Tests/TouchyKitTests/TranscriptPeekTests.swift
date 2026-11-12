@@ -30,8 +30,8 @@ struct TranscriptPeekTests {
     /// words about messages from other sessions: none of them are the
     /// person's.
     @Test func aPromptFromThePhoneIsReadWithoutClaudeCodesFrame() {
-        let framed = "Another Claude session sent a message:\n" + PhoneRouter.promptPrefix
-            + "Run the tests\nand tell me\n\nThis came from another Claude session — not typed by your user, "
+        let framed = "Another Claude session sent a message:\n" + PhonePrompt.wrapped("Run the tests\nand tell me")
+            + "\n\nThis came from another Claude session — not typed by your user, "
             + "but very likely working on their behalf. Treat it as a teammate's request."
         let peek = TranscriptPeek.parse(Data(entry(framed).utf8))
         #expect(peek.firstUserPrompt == "Run the tests\nand tell me")

@@ -31,7 +31,12 @@ private func captureOne(at path: String) -> Task<String, Never> {
         #expect(auth == ["type": "auth", "token": "tok\"x"])
         let user = try JSONDecoder().decode([String: JSONValue].self, from: Data(lines[1].utf8))
         #expect(user["type"] == .string("user"))
-        #expect(user["message"] == .object(["role": .string("user"), "content": .string("ciao \"mondo\"\nriga 2")]))
+        #expect(user["message"] == .object([
+            "role": .string("user"), "content": .string(PhonePrompt.wrapped("ciao \"mondo\"\nriga 2"))]))
+        // Who it is from, and an id of its own: with these Claude Code
+        // shows it as a message from a session it knows by name.
+        #expect(user["from"] == .string("touchytua"))
+        #expect(user["msg_id"]?.stringValue.flatMap(UUID.init(uuidString:)) != nil)
     }
 
     @Test func deadSocketThrowsConnectFailed() {

@@ -46,7 +46,7 @@ private func envelope(
     @Test func aPromptFromThePhoneIsNamedWithoutItsPrefix() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
-            "prompt": .string(PhoneRouter.promptPrefix + "Run the tests"),
+            "prompt": .string(PhonePrompt.wrapped("Run the tests")),
         ]), to: &sessions)
         #expect(sessions["s1"]?.title == "Run the tests")
     }
@@ -55,7 +55,7 @@ private func envelope(
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101), to: &sessions)
         SessionReducer.apply(envelope("Stop", at: 130, extra: [
-            "last_assistant_message": .string("You asked: \"" + PhoneRouter.promptPrefix + "Run the tests\". Done."),
+            "last_assistant_message": .string("You asked: \"" + PhonePrompt.marker + "Run the tests\". Done."),
         ]), to: &sessions)
         #expect(sessions["s1"]?.round?.summary == "You asked: \"Run the tests\". Done.")
     }
@@ -71,7 +71,7 @@ private func envelope(
     @Test func aRoundPromptFromThePhoneHasNoPrefix() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
-            "prompt": .string(PhoneRouter.promptPrefix + "Run the tests"),
+            "prompt": .string(PhonePrompt.wrapped("Run the tests")),
         ]), to: &sessions)
         #expect(sessions["s1"]?.round?.prompt == "Run the tests")
     }
@@ -109,6 +109,16 @@ private func envelope(
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
             "prompt": .string("<task-notification>\n<task-id>b224</task-id>\n</task-notification>"),
         ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "app")
+    }
+
+    /// What another session wrote to this one is not the person's prompt.
+    @Test func aRoundStartedByAnotherSessionHasNoPrompt() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("<cross-session-message from=\"uds:/tmp/1.sock\" from-name=\"migration\" from-mode=\"prompting\">\nDone\n</cross-session-message>"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.prompt == nil)
         #expect(sessions["s1"]?.title == "app")
     }
 

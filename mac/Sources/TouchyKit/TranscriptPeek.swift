@@ -82,7 +82,7 @@ public struct TranscriptPeek: Sendable {
                 // A message delivered to the session's inbox: the person's
                 // own words when the phone sent it, another session's otherwise.
                 if text.hasPrefix(peerOpening) {
-                    guard let prompt = phonePrompt(in: text) else { continue }
+                    guard let prompt = PhonePrompt.words(in: text) else { continue }
                     text = prompt
                 }
                 if let name = namedSession(in: text) {
@@ -105,20 +105,9 @@ public struct TranscriptPeek: Sendable {
         return peek
     }
 
-    /// How Claude Code opens and closes, in the transcript, a message that
-    /// reached the session through its inbox.
+    /// How Claude Code opens, in the transcript, a message that reached
+    /// the session through its inbox.
     private static let peerOpening = "Another Claude session sent a message:"
-    private static let peerClosing = "\n\nThis came from another Claude session"
-
-    /// The words sent from the phone, out of Claude Code's frame around
-    /// them. Nil when the message is not from the phone.
-    private static func phonePrompt(in text: String) -> String? {
-        var body = text.dropFirst(peerOpening.count)
-        if let closing = body.range(of: peerClosing) { body = body[..<closing.lowerBound] }
-        let words = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard words.hasPrefix(PhoneRouter.promptPrefix) else { return nil }
-        return nonEmpty(String(words.dropFirst(PhoneRouter.promptPrefix.count)))
-    }
 
     /// Extracts NAME from `The user named this session "NAME"`.
     private static func namedSession(in text: String) -> String? {

@@ -76,7 +76,7 @@ private final class Injected: @unchecked Sendable {
         #expect(await router.handle(.answer(requestId: "zzzzzzzz", answers: [:])) == [.error(code: "unknown_request")])
     }
 
-    @Test func promptInjectsWithPrefix() async {
+    @Test func aPromptIsHandedToTheSessionsInbox() async {
         let hub = Hub()
         _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 1, event: ["hook_event_name": .string("SessionStart"), "session_id": .string("s1"), "cwd": .string("/p")],
                                           messagingSocket: "/tmp/x.sock", messagingToken: "tok"))
@@ -85,7 +85,7 @@ private final class Injected: @unchecked Sendable {
         #expect(await router.handle(.prompt(sessionId: "s1", text: "fai i test")).isEmpty)
         #expect(log.calls.count == 1)
         #expect(log.calls.first?.0 == "/tmp/x.sock")
-        #expect(log.calls.first?.1 == "[Sent by the user from their phone via touchytua] fai i test")
+        #expect(log.calls.first?.1 == "fai i test")
     }
 
     @Test func promptToSessionWithoutInboxFails() async {

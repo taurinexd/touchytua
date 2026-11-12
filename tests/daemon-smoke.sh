@@ -8,8 +8,12 @@ D="$1"; H="$2"
 HOME_T=$(mktemp -d /tmp/ttd.XXXXXX); trap 'kill $PID $NC 2>/dev/null; rm -rf "$HOME_T"' EXIT
 fail=0
 # Reaper every 2 s: it runs at start, then well after the first check below.
+# A restart in progress leaves a marker that makes hooks wait: the daemon
+# clears it once it listens.
+mkdir -p "$HOME_T/run"; : > "$HOME_T/run/restarting"
 TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=2 "$D" 2>"$HOME_T/log" &
 PID=$!; sleep 0.7
+[ ! -e "$HOME_T/run/restarting" ] && [ -S "$HOME_T/run/hook.sock" ] && echo "PASS restart marker cleared once listening" || { echo "FAIL restart marker still there"; fail=1; }
 nc -lkU "$HOME_T/live.sock" >/dev/null 2>&1 &
 NC=$!; sleep 0.2
 send() { echo "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$1\",\"cwd\":\"/p/$1\"}" |

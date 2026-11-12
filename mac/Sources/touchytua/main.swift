@@ -83,8 +83,15 @@ func launchAgentDomain() -> String { "gui/\(getuid())" }
 /// gets the first spawn killed (OS_REASON_CODESIGNING) and launchd only
 /// retries about ten seconds later.
 func reloadLaunchAgent() {
+    announceRestart()
     run("/bin/launchctl", ["bootout", "\(launchAgentDomain())/\(Setup.launchAgentLabel)"])
     run("/bin/launchctl", ["bootstrap", launchAgentDomain(), plistPath])
+}
+
+/// Tells the hooks the daemon is about to be replaced, so they wait for
+/// the new one instead of dropping what they carry.
+func announceRestart() {
+    FileManager.default.createFile(atPath: runDir + "/" + Setup.restartMarkerName, contents: nil)
 }
 
 func ensureDaemon() {
@@ -128,7 +135,11 @@ func pair(openPNG: Bool, printQR: Bool) throws {
     let url = payload.url()
 
     // LaunchAgent: (re)start the daemon under launchd so it survives logout of sessions.
-    if let pid = daemonPid() { kill(pid, SIGTERM); usleep(300_000) }
+    if let pid = daemonPid() {
+        announceRestart()
+        kill(pid, SIGTERM)
+        usleep(300_000)
+    }
     try Setup.launchAgentPlist(daemonPath: binDir + "/touchytuad", logPath: logPath)
         .write(to: URL(fileURLWithPath: plistPath))
     reloadLaunchAgent()

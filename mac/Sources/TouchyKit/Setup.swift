@@ -3,6 +3,11 @@ import Foundation
 
 /// Helpers for `touchytua pair` / `daemon --ensure`.
 public enum Setup {
+    /// A file next to the hook socket that says the daemon is being
+    /// replaced. Hooks that find it fresh wait for the new daemon instead
+    /// of dropping their event; the daemon removes it once it listens.
+    public static let restartMarkerName = "restarting"
+
     public static let launchAgentLabel = "com.taurinexd.touchytua"
 
     /// MagicDNS name of this Mac from `tailscale status --json`, nil when

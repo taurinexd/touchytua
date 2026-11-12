@@ -35,4 +35,40 @@ NC=$!; sleep 0.3
 echo '{"hook_event_name":"Stop","session_id":"x"}' | env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN TOUCHYTUA_HOOK_SOCKET="$TMP/f.sock" "$BIN" >/dev/null
 sleep 0.3; kill $NC 2>/dev/null; wait $NC 2>/dev/null
 /usr/bin/jq -e '.messagingSocket==null and .messagingToken==null' "$TMP/req3.json" >/dev/null && echo "PASS d (no inbox, no creds)" || { echo "FAIL d: req=$(cat "$TMP/req3.json")"; fail=1; }
+# (e) the daemon is being restarted (fresh marker next to the socket): the
+#     hook waits for the socket instead of dropping the event.
+mkdir -p "$TMP/run1"; : > "$TMP/run1/restarting"
+( sleep 1; printf '{}\n' | nc -lU "$TMP/run1/hook.sock" > "$TMP/req5.json" ) &
+NC=$!
+echo '{"hook_event_name":"UserPromptSubmit","session_id":"x","prompt":"first"}' | TOUCHYTUA_HOOK_SOCKET="$TMP/run1/hook.sock" "$BIN" >/dev/null
+sleep 0.3; kill $NC 2>/dev/null; wait $NC 2>/dev/null
+/usr/bin/jq -e '.event.prompt=="first"' "$TMP/req5.json" >/dev/null 2>&1 && echo "PASS e (waits for a restarting daemon)" || { echo "FAIL e: req=$(cat "$TMP/req5.json" 2>&1)"; fail=1; }
+
+# (f) a marker left behind long ago does not make the hook wait.
+mkdir -p "$TMP/run2"; : > "$TMP/run2/restarting"; touch -t 202001010000 "$TMP/run2/restarting"
+start=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+echo '{"hook_event_name":"Stop","session_id":"x"}' | TOUCHYTUA_HOOK_SOCKET="$TMP/run2/hook.sock" "$BIN" >/dev/null
+end=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+[ $((end-start)) -lt 200 ] && echo "PASS f (stale marker ignored, $((end-start)) ms)" || { echo "FAIL f: ms=$((end-start))"; fail=1; }
+
+# (g) the daemon dies while holding a request: the hook sends it again to
+#     the daemon that comes back, and relays that one's answer.
+mkdir -p "$TMP/run3"
+nc -lU "$TMP/run3/hook.sock" </dev/null > "$TMP/req6a.json" &
+NC1=$!; sleep 0.3
+( sleep 1; rm -f "$TMP/run3/hook.sock"; printf '{"decision":"allow"}\n' | nc -lU "$TMP/run3/hook.sock" > "$TMP/req6b.json" ) &
+NC2=$!
+out=$(echo '{"hook_event_name":"PermissionRequest","session_id":"x","tool_name":"Bash"}' | TOUCHYTUA_HOOK_SOCKET="$TMP/run3/hook.sock" "$BIN")
+sleep 0.3; kill $NC1 $NC2 2>/dev/null; wait $NC1 $NC2 2>/dev/null
+[ "$out" = '{"decision":"allow"}' ] && /usr/bin/jq -e '.event.tool_name=="Bash"' "$TMP/req6b.json" >/dev/null 2>&1 && echo "PASS g (request survives a daemon restart)" || { echo "FAIL g: out=$out second=$(cat "$TMP/req6b.json" 2>&1)"; fail=1; }
+
+# (h) the daemon dies and never comes back: the hook gives up quietly.
+mkdir -p "$TMP/run4"
+nc -lU "$TMP/run4/hook.sock" </dev/null >/dev/null &
+NC=$!; sleep 0.3
+start=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+out=$(echo '{"hook_event_name":"PermissionRequest","session_id":"x"}' | TOUCHYTUA_HOOK_PATIENCE=1 TOUCHYTUA_HOOK_SOCKET="$TMP/run4/hook.sock" "$BIN"); code=$?
+end=$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')
+kill $NC 2>/dev/null; wait $NC 2>/dev/null
+[ $code -eq 0 ] && [ -z "$out" ] && [ $((end-start)) -lt 2500 ] && echo "PASS h (gives up after its patience, $((end-start)) ms)" || { echo "FAIL h: code=$code out=$out ms=$((end-start))"; fail=1; }
 exit $fail

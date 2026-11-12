@@ -59,6 +59,7 @@ targets:
           - _touchytua._tcp
         NSLocalNetworkUsageDescription: touchytua connects to your Mac over your Wi-Fi network to show and control your Claude Code sessions.
         NSCameraUsageDescription: touchytua uses the camera to scan the pairing code shown on your Mac.
+        NSMicrophoneUsageDescription: touchytua uses the microphone to turn what you say into the text of your prompt. The audio stays on this iPhone.
         ITSAppUsesNonExemptEncryption: false
   # A scripted finger for end-to-end runs in the Simulator (see DriverTests).
   TouchytuaUITests:

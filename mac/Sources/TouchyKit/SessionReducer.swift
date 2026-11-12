@@ -19,6 +19,15 @@ public enum SessionReducer {
         return line.map { clipped($0, to: 120) }
     }
 
+    /// A prompt as the phone shows it above the reply: without the phone
+    /// prefix, at most 600 characters. Nil when nothing readable is left.
+    static func roundPrompt(from prompt: String?) -> String? {
+        guard var text = prompt else { return nil }
+        if text.hasPrefix(PhoneRouter.promptPrefix) { text.removeFirst(PhoneRouter.promptPrefix.count) }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : clipped(text, to: 600)
+    }
+
     /// `text` in at most `limit` characters: cut at the last space when there
     /// is one near the end, and marked with an ellipsis.
     static func clipped(_ text: String, to limit: Int) -> String {
@@ -61,7 +70,8 @@ public enum SessionReducer {
         switch name {
         case "UserPromptSubmit":
             session.state = .working
-            session.round = Round(startedAt: at)
+            session.round = Round(
+                startedAt: at, prompt: Self.roundPrompt(from: envelope.event["prompt"]?.stringValue))
             // A provisional title until the transcript gives a better one
             // at the end of the round: the folder name alone cannot tell
             // two sessions of one project apart.
@@ -83,7 +93,9 @@ public enum SessionReducer {
             var round = session.round ?? Round(startedAt: at)
             round.endedAt = at
             if let summary = envelope.event["last_assistant_message"]?.stringValue {
-                round.summary = summary
+                // The prefix is for Claude: when a reply quotes a phone
+                // prompt, the phone shows the words without it.
+                round.summary = summary.replacingOccurrences(of: PhoneRouter.promptPrefix, with: "")
             }
             session.round = round
         default:

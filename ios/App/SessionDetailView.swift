@@ -41,7 +41,7 @@ struct SessionDetailView: View {
                     }
                 }
                 if let round = session.round {
-                    RoundView(round: round, waiting: session.state == .waiting)
+                    RoundView(round: round, prompt: session.roundPrompt, waiting: session.state == .waiting)
                 } else {
                     Text("Nothing has happened in this session yet.")
                         .font(Theme.body(15))
@@ -52,7 +52,7 @@ struct SessionDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) { PromptBar(sessionId: session.id) }
+        .safeAreaInset(edge: .bottom) { PromptBar(sessionId: session.id, project: session.cwd) }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 8) {
@@ -70,6 +70,8 @@ struct SessionDetailView: View {
 /// "This Round": how long, how much, and what Claude said.
 struct RoundView: View {
     let round: Round
+    /// What the person asked for in this round, unless the title says it.
+    var prompt: String?
     /// The session is stopped on a request for the person.
     var waiting = false
 
@@ -86,6 +88,13 @@ struct RoundView: View {
                         .monospacedDigit()
                 }
             }
+            if let prompt {
+                Text(prompt)
+                    .font(Theme.display(17, .bold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let summary = round.summary, !summary.isEmpty {
                 MarkdownView(text: summary)
             } else if round.endedAt == nil, !waiting {
@@ -94,60 +103,5 @@ struct RoundView: View {
                     .foregroundStyle(Theme.textSecondary)
             }
         }
-    }
-}
-
-/// The text prompt at the bottom of a session.
-struct PromptBar: View {
-    @Environment(ConnectionManager.self) private var connection
-    let sessionId: String
-    @State private var text = ""
-    @FocusState private var typing: Bool
-
-    private var connected: Bool {
-        if case .connected = connection.status { return true }
-        return false
-    }
-
-    private var canSend: Bool {
-        connected && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let notice = connection.notice {
-                Text(notice)
-                    .font(Theme.body(13))
-                    .foregroundStyle(Theme.red)
-            }
-            HStack(alignment: .bottom, spacing: 10) {
-                TextField("Message Claude", text: $text, axis: .vertical)
-                    .font(Theme.body(16))
-                    .foregroundStyle(Theme.text)
-                    .lineLimit(1...5)
-                    .focused($typing)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .card(radius: 20)
-                Button {
-                    let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    text = ""
-                    typing = false
-                    Task { await connection.prompt(sessionId: sessionId, text: prompt) }
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(Color.black)
-                        .frame(width: 42, height: 42)
-                        .background(Theme.green, in: Circle())
-                }
-                .disabled(!canSend)
-                .opacity(canSend ? 1 : 0.35)
-                .accessibilityLabel("Send message")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Theme.background)
     }
 }

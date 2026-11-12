@@ -37,6 +37,17 @@ extension Session {
     }
 }
 
+extension Session {
+    /// The prompt of the current round, to show above the reply. Nil when
+    /// the headline already says it: a session with no name is titled
+    /// after its first prompt.
+    public var roundPrompt: String? {
+        guard let prompt = round?.prompt, !prompt.isEmpty, prompt != headline else { return nil }
+        if headline.hasSuffix("…"), prompt.hasPrefix(headline.dropLast()) { return nil }
+        return prompt
+    }
+}
+
 extension Round {
     /// "Worked for 1m35s · 2k token", or "Working for 12s" while it runs.
     public func caption(now: Date, waiting: Bool = false) -> String {

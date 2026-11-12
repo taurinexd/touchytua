@@ -6,12 +6,25 @@ import UIKit
 struct TouchytuaApp: App {
     @State private var connection = ConnectionManager(
         store: KeychainStore(), deviceName: UIDevice.current.name, dial: NWWebSocketTransport.dial)
+    @State private var dictation = Dictation(engine: TouchytuaApp.speechEngine)
     @Environment(\.scenePhase) private var scenePhase
+
+    private static var speechEngine: any SpeechEngine {
+        #if DEBUG
+        // Lets a script show dictation in the Simulator, which has no voice:
+        // SIMCTL_CHILD_TOUCHYTUA_FAKE_SPEECH="run the tests" xcrun simctl launch …
+        if let words = ProcessInfo.processInfo.environment["TOUCHYTUA_FAKE_SPEECH"] {
+            return ScriptedSpeechEngine(words: words)
+        }
+        #endif
+        return SystemSpeechEngine()
+    }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(connection)
+                .environment(dictation)
                 .preferredColorScheme(.dark)
                 .onOpenURL { url in
                     Task { await connection.pair(url: url.absoluteString) }

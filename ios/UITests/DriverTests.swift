@@ -11,6 +11,8 @@ import XCTest
 ///   shot:<name>            save a screenshot as <name>.png in SHOT_DIR
 ///   tap:<text>             tap the first element whose label contains <text>
 ///   swipeRight:<text> / swipeLeft:<text>
+///   hold:<seconds>,<text>  press and hold that element, then let go
+///   holdAway:<seconds>,<text>  the same, but slide the finger away before letting go
 ///   scrollDown / scrollUp  drag the content one screenful
 ///   type:<text>            type into the focused field
 ///   waitFor:<text>         wait up to 60 s for an element to appear
@@ -43,6 +45,15 @@ final class DriverTests: XCTestCase {
                 try find(argument, in: app).swipeRight()
             case "swipeLeft":
                 try find(argument, in: app).swipeLeft()
+            case "hold", "holdAway":
+                let pieces = argument.split(separator: ",", maxSplits: 1).map(String.init)
+                let target = try find(pieces.count > 1 ? pieces[1] : "", in: app)
+                let seconds = Double(pieces[0]) ?? 1
+                if parts[0] == "hold" {
+                    target.press(forDuration: seconds)
+                } else {
+                    target.press(forDuration: seconds, thenDragTo: app.navigationBars.firstMatch)
+                }
             case "scrollDown":
                 app.swipeUp()
             case "scrollUp":
@@ -72,7 +83,7 @@ final class DriverTests: XCTestCase {
     /// can carry its children's text, and tapping it would miss the button.
     @MainActor private func element(_ text: String, in app: XCUIApplication) -> XCUIElement {
         let labelled = NSPredicate(format: "label CONTAINS[c] %@ OR placeholderValue CONTAINS[c] %@", text, text)
-        for query in [app.buttons, app.textFields, app.textViews, app.staticTexts] {
+        for query in [app.buttons, app.switches, app.textFields, app.textViews, app.staticTexts] {
             let match = query.matching(labelled).firstMatch
             if match.exists { return match }
         }

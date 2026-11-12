@@ -187,3 +187,33 @@ import TouchyProtocol
         #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: false) == "Working for 1m16s")
     }
 }
+
+@Suite struct RoundPromptTests {
+    private func session(title: String, prompt: String?) -> Session {
+        Session(
+            id: "s", title: title, cwd: "/Users/me/Code/shop", state: .done,
+            round: Round(startedAt: Date(timeIntervalSince1970: 0), prompt: prompt),
+            lastEventAt: Date(timeIntervalSince1970: 0))
+    }
+
+    @Test func thePromptOfTheRoundIsShown() {
+        #expect(session(title: "tt-voice", prompt: "Run the tests").roundPrompt == "Run the tests")
+    }
+
+    @Test func aPromptAlreadyShownAsTheTitleIsNotRepeated() {
+        #expect(session(title: "Run the tests", prompt: "Run the tests").roundPrompt == nil)
+    }
+
+    @Test func aTitleCutFromThePromptCountsAsTheSame() {
+        let prompt = "Fix the cart and then run every test in the suite"
+        #expect(session(title: "Fix the cart and then run…", prompt: prompt).roundPrompt == nil)
+    }
+
+    @Test func aLongerPromptThanItsTitleLineIsShown() {
+        #expect(session(title: "Fix the cart", prompt: "Fix the cart\nand the tests").roundPrompt == "Fix the cart\nand the tests")
+    }
+
+    @Test func aRoundWithoutAPromptShowsNone() {
+        #expect(session(title: "tt-voice", prompt: nil).roundPrompt == nil)
+    }
+}

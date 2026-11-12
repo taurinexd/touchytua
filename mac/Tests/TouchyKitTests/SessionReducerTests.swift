@@ -51,6 +51,56 @@ private func envelope(
         #expect(sessions["s1"]?.title == "Run the tests")
     }
 
+    @Test func aReplyQuotingAPhonePromptLosesThePrefix() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101), to: &sessions)
+        SessionReducer.apply(envelope("Stop", at: 130, extra: [
+            "last_assistant_message": .string("You asked: \"" + PhoneRouter.promptPrefix + "Run the tests\". Done."),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.summary == "You asked: \"Run the tests\". Done.")
+    }
+
+    @Test func aRoundRemembersThePromptThatStartedIt() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("  Fix the cart\nand run the tests \n"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.prompt == "Fix the cart\nand run the tests")
+    }
+
+    @Test func aRoundPromptFromThePhoneHasNoPrefix() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(PhoneRouter.promptPrefix + "Run the tests"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.prompt == "Run the tests")
+    }
+
+    @Test func aVeryLongRoundPromptIsCut() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string(String(repeating: "word ", count: 400)),
+        ]), to: &sessions)
+        let prompt = sessions["s1"]?.round?.prompt ?? ""
+        #expect(prompt.count <= 600)
+        #expect(prompt.hasSuffix("word…"))
+    }
+
+    @Test func anEmptyPromptLeavesTheRoundWithoutOne() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string(" \n ")]), to: &sessions)
+        #expect(sessions["s1"]?.round != nil)
+        #expect(sessions["s1"]?.round?.prompt == nil)
+    }
+
+    @Test func theRoundKeepsItsPromptWhenItEnds() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("Fix the cart")]), to: &sessions)
+        SessionReducer.apply(envelope("Stop", at: 130, extra: ["last_assistant_message": .string("Done")]), to: &sessions)
+        #expect(sessions["s1"]?.round?.prompt == "Fix the cart")
+        #expect(sessions["s1"]?.round?.summary == "Done")
+    }
+
     @Test func aLongPromptIsCutForTheTitle() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [

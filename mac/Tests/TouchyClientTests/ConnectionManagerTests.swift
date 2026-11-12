@@ -388,6 +388,45 @@ actor Gate {
         #expect(await eventually { manager.outbox.waiting(in: "s1").isEmpty })
     }
 
+    @Test func earlierMessagesAreLoadedWhenAskedFor() async throws {
+        let lines = [
+            #"{"type":"user","uuid":"u1","timestamp":"2026-11-12T10:00:01.000Z","message":{"role":"user","content":"Fix the cart"}}"#,
+            #"{"type":"assistant","uuid":"a2","timestamp":"2026-11-12T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}]}}"#,
+        ]
+        let path = NSTemporaryDirectory() + "tt-earlier-" + UUID().uuidString + ".jsonl"
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: URL(fileURLWithPath: path))
+        let mac = pairedMac(endpoints: [lan])
+        _ = await mac.hub.handle(HookEnvelope(
+            v: 1, capturedAt: ISO8601DateFormatter().date(from: "2026-11-12T10:00:10Z")!.timeIntervalSince1970,
+            event: ["hook_event_name": .string("UserPromptSubmit"), "session_id": .string("s1"), "cwd": .string("/p"),
+                    "prompt": .string("Now the tests"), "transcript_path": .string(path)]))
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+        #expect(manager.earlier.page(of: "s1").items.isEmpty)
+
+        await manager.loadEarlier(sessionId: "s1")
+
+        #expect(await eventually { manager.earlier.page(of: "s1").items.map(\.text) == ["Fix the cart", "Fixed."] })
+        #expect(!manager.earlier.page(of: "s1").canLoadMore)
+    }
+
+    @Test func aSessionWithoutATranscriptSaysItsHistoryIsUnavailable() async {
+        let mac = pairedMac(endpoints: [lan])
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+
+        await manager.loadEarlier(sessionId: "s1")
+
+        #expect(await eventually { manager.earlier.page(of: "s1").isUnavailable })
+    }
+
     // MARK: lifecycle
 
     @Test func stopHangsUpAndStartComesBack() async {

@@ -56,6 +56,8 @@ public final class ConnectionManager {
     public private(set) var notice: String?
     /// The prompts sent from here that Claude has not taken up yet.
     public private(set) var outbox = Outbox()
+    /// The earlier conversation of the sessions, as far as it was asked for.
+    public private(set) var earlier = Earlier()
 
     @ObservationIgnored private let store: any SecretStore
     @ObservationIgnored private let deviceName: String
@@ -157,6 +159,7 @@ public final class ConnectionManager {
         macName = nil
         notice = nil
         outbox = Outbox()
+        earlier = Earlier()
         status = .unpaired
     }
 
@@ -175,6 +178,19 @@ public final class ConnectionManager {
         notice = nil
         outbox.sent(text, to: state.sessions.first { $0.id == sessionId })
         await link.send(.prompt(sessionId: sessionId, text: text))
+    }
+
+    /// Asks the Mac for the messages before the ones on screen.
+    public func loadEarlier(sessionId: String) async {
+        guard let link, case .connected = status,
+              let session = state.sessions.first(where: { $0.id == sessionId }),
+              let cursor = earlier.ask(session) else { return }
+        await link.send(.history(sessionId: sessionId, before: cursor))
+    }
+
+    /// Leaving a session lets go of its earlier conversation.
+    public func forgetEarlier(sessionId: String) {
+        earlier.forget(sessionId)
     }
 
     /// The card goes away at once: the Mac either settles the request or says
@@ -314,6 +330,7 @@ public final class ConnectionManager {
                     receive(message)
                 }
                 await link.close()
+                earlier.interrupted()
                 guard !Task.isCancelled else { return }
                 self.link = nil
             }
@@ -329,15 +346,26 @@ public final class ConnectionManager {
     }
 
     private func receive(_ message: MacToPhone) {
+        if case let .history(sessionId, items, next) = message {
+            earlier.received(sessionId: sessionId, items: items, next: next)
+            return
+        }
         guard case let .error(code) = message else {
             state.apply(message)
             outbox.settle(with: state.sessions)
+            earlier.settle(with: state.sessions)
             return
         }
         // `unknown_request` needs nothing: the card was removed on the tap.
-        if code == "inject_failed" || code == "unknown_session" {
+        switch code {
+        case "inject_failed", "unknown_session":
             notice = Self.promptNotDeliveredMessage
             outbox.dropLast()
+        case "history_unavailable", "unsupported_message":
+            // The second is a Mac whose plugin is older than this app.
+            earlier.failed()
+        default:
+            break
         }
     }
 }

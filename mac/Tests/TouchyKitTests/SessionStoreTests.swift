@@ -70,6 +70,22 @@ import Testing
         #expect(Set(store.load().map(\.session.id)) == ["idle", "live"])
     }
 
+    /// An idle session sends no events: after a restart its history must
+    /// still be found.
+    @Test func theTranscriptOfASessionSurvivesARestart() async {
+        let path = tempPath()
+        let store = SessionStore(path: path)
+        let hub = Hub(persist: { store.save($0) })
+        _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 1, event: [
+            "hook_event_name": .string("UserPromptSubmit"), "session_id": .string("s1"), "cwd": .string("/p/app"),
+            "transcript_path": .string("/t/s1.jsonl")]))
+        #expect(await hub.transcript(of: "s1") == "/t/s1.jsonl")
+
+        let restarted = Hub()
+        await restarted.restore(store.load())
+        #expect(await restarted.transcript(of: "s1") == "/t/s1.jsonl")
+    }
+
     @Test func hubPersistsOnVisibleChangesOnly() async {
         let path = tempPath()
         let store = SessionStore(path: path)

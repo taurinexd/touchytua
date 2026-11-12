@@ -19,10 +19,13 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
     case decide(requestId: String, allow: Bool, message: String?)
     case answer(requestId: String, answers: [String: String])
     case prompt(sessionId: String, text: String)
+    /// The messages of a session that come before `before`, a cursor from
+    /// an earlier page; without one, before the round the phone shows.
+    case history(sessionId: String, before: String?)
     /// A type this build does not know (a newer app): ignored, never fatal.
     case unknown(String)
 
-    private enum Keys: String, CodingKey { case t, deviceName, requestId, allow, message, answers, sessionId, text }
+    private enum Keys: String, CodingKey { case t, deviceName, requestId, allow, message, answers, sessionId, text, before }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -35,6 +38,8 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
                                       answers: try c.decode([String: String].self, forKey: .answers))
         case "prompt": self = .prompt(sessionId: try c.decode(String.self, forKey: .sessionId),
                                       text: try c.decode(String.self, forKey: .text))
+        case "history": self = .history(sessionId: try c.decode(String.self, forKey: .sessionId),
+                                        before: try c.decodeIfPresent(String.self, forKey: .before))
         case let t: self = .unknown(t)
         }
     }
@@ -52,6 +57,9 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
             try c.encode("answer", forKey: .t); try c.encode(id, forKey: .requestId); try c.encode(answers, forKey: .answers)
         case let .prompt(sid, text):
             try c.encode("prompt", forKey: .t); try c.encode(sid, forKey: .sessionId); try c.encode(text, forKey: .text)
+        case let .history(sid, before):
+            try c.encode("history", forKey: .t); try c.encode(sid, forKey: .sessionId)
+            try c.encodeIfPresent(before, forKey: .before)
         }
     }
 }
@@ -65,10 +73,15 @@ public enum MacToPhone: Codable, Equatable, Sendable {
     case requestResolved(id: String, by: ResolvedBy)
     case usage(Usage)
     case error(code: String)
+    /// A page of a session's earlier conversation, oldest first. `next` is
+    /// the cursor for the page before it; nil at the start.
+    case history(sessionId: String, items: [HistoryItem], next: String?)
     /// A type this build does not know (a newer plugin): ignored, never fatal.
     case unknown(String)
 
-    private enum Keys: String, CodingKey { case t, sessions, pending, usage, session, id, request, by, code }
+    private enum Keys: String, CodingKey {
+        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -83,6 +96,9 @@ public enum MacToPhone: Codable, Equatable, Sendable {
                                                         by: try c.decode(ResolvedBy.self, forKey: .by))
         case "usage": self = .usage(try c.decode(Usage.self, forKey: .usage))
         case "error": self = .error(code: try c.decode(String.self, forKey: .code))
+        case "history": self = .history(sessionId: try c.decode(String.self, forKey: .sessionId),
+                                        items: try c.decode([HistoryItem].self, forKey: .items),
+                                        next: try c.decodeIfPresent(String.self, forKey: .next))
         case let t: self = .unknown(t)
         }
     }
@@ -101,6 +117,9 @@ public enum MacToPhone: Codable, Equatable, Sendable {
             try c.encode("requestResolved", forKey: .t); try c.encode(id, forKey: .id); try c.encode(by, forKey: .by)
         case let .usage(u): try c.encode("usage", forKey: .t); try c.encode(u, forKey: .usage)
         case let .error(code): try c.encode("error", forKey: .t); try c.encode(code, forKey: .code)
+        case let .history(sid, items, next):
+            try c.encode("history", forKey: .t); try c.encode(sid, forKey: .sessionId)
+            try c.encode(items, forKey: .items); try c.encodeIfPresent(next, forKey: .next)
         }
     }
 }

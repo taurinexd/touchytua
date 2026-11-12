@@ -17,7 +17,8 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
         for m: PhoneToMac in [.hello(deviceName: "iPhone"), .decide(requestId: "abcd1234", allow: true, message: nil),
                               .decide(requestId: "abcd1234", allow: false, message: "no"),
                               .answer(requestId: "abcd1234", answers: ["Quale?": "B"]),
-                              .prompt(sessionId: "s1", text: "ciao")] {
+                              .prompt(sessionId: "s1", text: "ciao"),
+                              .history(sessionId: "s1", before: nil), .history(sessionId: "s1", before: "4096")] {
             #expect(try roundTrip(m) == m)
         }
     }
@@ -26,7 +27,12 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
         let usage = Usage(totalCostUSD: 1.5, fiveHourPct: 55, sevenDayPct: 9)
         for m: MacToPhone in [.snapshot(sessions: [session], pending: [request], usage: usage), .snapshot(sessions: [], pending: [], usage: nil),
                               .session(session), .sessionRemoved(id: "s1"), .request(request),
-                              .requestResolved(id: "abcd1234", by: .terminal), .usage(usage), .error(code: "unknown_request")] {
+                              .requestResolved(id: "abcd1234", by: .terminal), .usage(usage), .error(code: "unknown_request"),
+                              .history(sessionId: "s1", items: [
+                                  HistoryItem(id: "u1", kind: .prompt, text: "Fix the cart", at: Date(timeIntervalSince1970: 5)),
+                                  HistoryItem(id: "t1", kind: .tools, text: "Bash · 1 tool call", at: Date(timeIntervalSince1970: 6)),
+                              ], next: "128"),
+                              .history(sessionId: "s1", items: [], next: nil)] {
             #expect(try roundTrip(m) == m)
         }
     }
@@ -86,6 +92,46 @@ private final class Injected: @unchecked Sendable {
         #expect(log.calls.count == 1)
         #expect(log.calls.first?.0 == "/tmp/x.sock")
         #expect(log.calls.first?.1 == "fai i test")
+    }
+
+    private func transcript() throws -> String {
+        let lines = [
+            #"{"type":"user","uuid":"u1","timestamp":"2026-11-12T10:00:01.000Z","message":{"role":"user","content":"Fix the cart"}}"#,
+            #"{"type":"assistant","uuid":"a2","timestamp":"2026-11-12T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Fixed."}]}}"#,
+            #"{"type":"user","uuid":"u3","timestamp":"2026-11-12T10:00:10.000Z","message":{"role":"user","content":"Now the tests"}}"#,
+        ]
+        let path = NSTemporaryDirectory() + "tt-router-" + UUID().uuidString + ".jsonl"
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    private func event(_ name: String, at stamp: String, transcript: String?) -> HookEnvelope {
+        var event: [String: JSONValue] = ["hook_event_name": .string(name), "session_id": .string("s1"), "cwd": .string("/p")]
+        if let transcript { event["transcript_path"] = .string(transcript) }
+        return HookEnvelope(v: 1, capturedAt: ISO8601DateFormatter().date(from: stamp)!.timeIntervalSince1970, event: event)
+    }
+
+    /// The phone asks for what came before the round it already shows.
+    @Test func historyIsWhatCameBeforeTheRoundOnScreen() async throws {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: "2026-11-12T10:00:10Z", transcript: try transcript()))
+        let router = PhoneRouter(hub: hub) { _, _ in }
+        let replies = await router.handle(.history(sessionId: "s1", before: nil))
+        guard case let .history(id, items, next)? = replies.first else {
+            Issue.record("expected a page of history, got \(replies)")
+            return
+        }
+        #expect(id == "s1")
+        #expect(items.map(\.text) == ["Fix the cart", "Fixed."])
+        #expect(next == nil)
+    }
+
+    @Test func aSessionWhoseTranscriptIsUnknownHasNoHistory() async {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: "2026-11-12T10:00:10Z", transcript: nil))
+        let router = PhoneRouter(hub: hub) { _, _ in }
+        #expect(await router.handle(.history(sessionId: "s1", before: nil)) == [.error(code: "history_unavailable")])
+        #expect(await router.handle(.history(sessionId: "nope", before: nil)) == [.error(code: "history_unavailable")])
     }
 
     @Test func promptToSessionWithoutInboxFails() async {

@@ -83,15 +83,23 @@ public struct Question: Equatable, Sendable {
     }
 
     /// The `answers` to send: one entry per question, several labels joined
-    /// in the order the options were shown. Nil until every question has
-    /// at least one pick.
-    public static func answers(to questions: [Question], picked: [String: Set<String>]) -> [String: String]? {
+    /// in the order the options were shown. `written` is an answer in the
+    /// person's own words: it replaces the pick of a single choice and
+    /// follows the picks of a multiple one. Nil until every question has
+    /// an answer.
+    public static func answers(
+        to questions: [Question], picked: [String: Set<String>], written: [String: String] = [:]
+    ) -> [String: String]? {
         guard !questions.isEmpty else { return nil }
         var answers: [String: String] = [:]
         for question in questions {
-            let labels = question.options.map(\.label).filter { picked[question.text]?.contains($0) == true }
-            guard !labels.isEmpty else { return nil }
-            answers[question.text] = labels.joined(separator: ", ")
+            var parts = question.options.map(\.label).filter { picked[question.text]?.contains($0) == true }
+            let own = (written[question.text] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !own.isEmpty {
+                parts = question.multiSelect ? parts + [own] : [own]
+            }
+            guard !parts.isEmpty else { return nil }
+            answers[question.text] = parts.joined(separator: ", ")
         }
         return answers
     }

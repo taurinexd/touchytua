@@ -106,6 +106,31 @@ import TouchyProtocol
         #expect(Question.answers(to: questions, picked: ["One?": ["A"], "Two?": []]) == nil)
         #expect(Question.answers(to: [], picked: [:]) == nil)
     }
+
+    private var one: Question {
+        Question(text: "One?", header: nil, multiSelect: false, options: [.init(label: "A", description: nil), .init(label: "B", description: nil)])
+    }
+
+    private var many: Question {
+        Question(text: "Many?", header: nil, multiSelect: true, options: [.init(label: "X", description: nil), .init(label: "Y", description: nil)])
+    }
+
+    @Test func anAnswerInTheirOwnWordsStandsInForAPick() {
+        #expect(Question.answers(to: [one], picked: [:], written: ["One?": "  Use SQLite instead\n"]) == ["One?": "Use SQLite instead"])
+    }
+
+    @Test func theirOwnWordsReplaceThePickOfASingleChoice() {
+        #expect(Question.answers(to: [one], picked: ["One?": ["A"]], written: ["One?": "Neither"]) == ["One?": "Neither"])
+    }
+
+    @Test func theirOwnWordsComeAfterThePicksOfAMultipleChoice() {
+        #expect(Question.answers(to: [many], picked: ["Many?": ["Y", "X"]], written: ["Many?": "and Z"]) == ["Many?": "X, Y, and Z"])
+    }
+
+    @Test func blankWordsAreNoAnswer() {
+        #expect(Question.answers(to: [one], picked: [:], written: ["One?": "  \n"]) == nil)
+        #expect(Question.answers(to: [one], picked: ["One?": ["B"]], written: ["One?": " "]) == ["One?": "B"])
+    }
 }
 
 @Suite struct SessionPresentationTests {

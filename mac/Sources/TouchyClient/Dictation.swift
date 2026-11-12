@@ -41,7 +41,9 @@ public enum SpeechProblem: Error, Equatable, Sendable {
 public protocol SpeechEngine: Sendable {
     /// Opens the microphone. The stream ends once everything said before
     /// `stop()` has settled, or throws a `SpeechProblem`.
-    func listen(locale: Locale) -> AsyncThrowingStream<SpeechEvent, Error>
+    /// `hints` are words the person is likely to say that the language
+    /// model would otherwise mishear: names, technical terms.
+    func listen(locale: Locale, hints: [String]) -> AsyncThrowingStream<SpeechEvent, Error>
     /// Closes the microphone and lets the last words settle.
     func stop() async
     /// Closes the microphone and drops what has not settled.
@@ -77,7 +79,7 @@ public final class Dictation {
     }
 
     /// Opens the microphone; what is said is added after `typed`.
-    public func start(after typed: String, locale: Locale) {
+    public func start(after typed: String, locale: Locale, hints: [String] = []) {
         guard phase == .idle else { return }
         self.typed = typed
         settled = ""
@@ -85,7 +87,7 @@ public final class Dictation {
         text = typed
         problem = nil
         phase = .preparing(nil)
-        let events = engine.listen(locale: locale)
+        let events = engine.listen(locale: locale, hints: hints)
         listener = Task { [weak self] in
             do {
                 for try await event in events { self?.take(event) }
@@ -182,5 +184,33 @@ public enum DictationLanguage {
             return Name(id: id, name: name.prefix(1).uppercased(with: locale) + name.dropFirst())
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+}
+
+/// Words a dictated prompt is likely to contain and a general language
+/// model gets wrong: English coding terms inside any language, and the
+/// name of the project the session works on.
+public enum DictationVocabulary {
+    public static let coding = [
+        "README", "deploy", "commit", "push", "pull request", "merge", "branch", "rebase", "checkout", "stash",
+        "diff", "log", "build", "test", "lint", "refactor", "bug", "fix", "debug", "endpoint",
+        "API", "backend", "frontend", "database", "migration", "query", "cache", "token", "hook", "plugin",
+        "script", "repository", "repo", "staging", "production", "rollback", "release", "changelog", "config", "JSON",
+        "YAML", "Docker", "container", "server", "client", "webhook", "timeout", "null", "string", "array",
+        "function", "class", "import", "export", "package", "npm", "Git", "GitHub", "Claude", "Claude Code",
+        "Xcode", "Swift", "PHP", "Python", "JavaScript", "TypeScript", "CSS", "HTML", "SQL", "regex",
+        "localhost", "frontmatter", "Markdown", "CLI", "terminal", "shell", "framework", "middleware", "payload", "runtime",
+    ]
+
+    /// The project's folder name and its parts first, then the coding
+    /// words; nothing twice.
+    public static func hints(project: String?) -> [String] {
+        var seen = Set<String>()
+        var name: [String] = []
+        if let folder = project.map({ ($0 as NSString).lastPathComponent }), !folder.isEmpty {
+            let parts = folder.split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count >= 3 }
+            name = [folder] + parts
+        }
+        return (name + coding).filter { seen.insert($0.lowercased()).inserted }
     }
 }

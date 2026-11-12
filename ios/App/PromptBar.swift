@@ -23,6 +23,8 @@ struct PromptBar: View {
     @AppStorage(DictationSettings.holdToSend) private var holdToSend = false
     @AppStorage(DictationSettings.language) private var language = ""
     let sessionId: String
+    /// The folder the session works in: its name is a word to expect.
+    var project: String?
     @State private var text = ""
     @FocusState private var typing: Bool
     /// When the finger went down on the microphone, in hold-to-talk.
@@ -175,7 +177,9 @@ struct PromptBar: View {
         // The finger may already be gone: don't open a microphone nobody closes.
         if held, heldSince == nil { return }
         // With no supported language the engine itself reports the problem.
-        dictation.start(after: text, locale: locale ?? DictationSettings.deviceLocale)
+        dictation.start(
+            after: text, locale: locale ?? DictationSettings.deviceLocale,
+            hints: DictationVocabulary.hints(project: project))
     }
 
     private func resolveLocale() async -> Locale? {

@@ -11,12 +11,17 @@ public struct Round: Codable, Equatable, Sendable {
     public var endedAt: Date?
     public var tokens: Int?
     public var summary: String?
+    /// What the person asked for in this round.
+    public var prompt: String?
 
-    public init(startedAt: Date, endedAt: Date? = nil, tokens: Int? = nil, summary: String? = nil) {
+    public init(
+        startedAt: Date, endedAt: Date? = nil, tokens: Int? = nil, summary: String? = nil, prompt: String? = nil
+    ) {
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.tokens = tokens
         self.summary = summary
+        self.prompt = prompt
     }
 }
 

@@ -7,19 +7,22 @@ final class ScriptedEngine: SpeechEngine, @unchecked Sendable {
     private let lock = NSLock()
     private var feed: AsyncThrowingStream<SpeechEvent, Error>.Continuation?
     private var _locales: [Locale] = []
+    private var _hints: [[String]] = []
     private var _stops = 0
     private var _cancels = 0
     /// What the engine still recognizes after the microphone closes.
     var lastWords: [SpeechEvent] = []
 
     var locales: [Locale] { lock.withLock { _locales } }
+    var hints: [[String]] { lock.withLock { _hints } }
     var stops: Int { lock.withLock { _stops } }
     var cancels: Int { lock.withLock { _cancels } }
 
-    func listen(locale: Locale) -> AsyncThrowingStream<SpeechEvent, Error> {
+    func listen(locale: Locale, hints: [String]) -> AsyncThrowingStream<SpeechEvent, Error> {
         let (stream, continuation) = AsyncThrowingStream<SpeechEvent, Error>.makeStream()
         lock.withLock {
             _locales.append(locale)
+            _hints.append(hints)
             feed = continuation
         }
         return stream
@@ -69,6 +72,14 @@ private let italian = Locale(identifier: "it_IT")
         #expect(await eventually { dictation.text == "ciao" })
         #expect(dictation.phase == .listening)
         #expect(engine.locales == [italian])
+    }
+
+    @Test func theEngineIsToldWhichWordsToExpect() async {
+        let dictation = Dictation(engine: engine)
+        dictation.start(after: "", locale: italian, hints: ["README", "deploy"])
+        engine.say(.listening)
+        #expect(await eventually { dictation.phase == .listening })
+        #expect(engine.hints == [["README", "deploy"]])
     }
 
     @Test func settledWordsReplaceTheGuess() async {
@@ -270,5 +281,40 @@ private let italian = Locale(identifier: "it_IT")
         let names = DictationLanguage.names(for: ["en-US", "it-IT", "en-GB"].map(Locale.init(identifier:)))
         #expect(names.map(\.id) == ["en-GB", "en-US", "it-IT"])
         #expect(names.last?.name == "Italiano (Italia)")
+    }
+}
+
+@Suite struct DictationVocabularyTests {
+    @Test func codingWordsAreAlwaysExpected() {
+        let hints = DictationVocabulary.hints(project: "/Users/me/Code/shop")
+        #expect(hints.contains("README"))
+        #expect(hints.contains("deploy"))
+        #expect(hints.contains("pull request"))
+    }
+
+    @Test func theProjectNameComesFirstWithItsParts() {
+        let hints = DictationVocabulary.hints(project: "/Users/me/Code/Shop-backend")
+        #expect(Array(hints.prefix(3)) == ["Shop-backend", "Shop", "backend"])
+    }
+
+    @Test func aOneWordProjectIsListedOnce() {
+        let hints = DictationVocabulary.hints(project: "/Users/me/Code/touchytua/")
+        #expect(hints.first == "touchytua")
+        #expect(hints.filter { $0 == "touchytua" }.count == 1)
+    }
+
+    @Test func tinyPiecesOfAProjectNameAreLeftOut() {
+        let hints = DictationVocabulary.hints(project: "/p/my_garden.io")
+        #expect(Array(hints.prefix(2)) == ["my_garden.io", "garden"])
+    }
+
+    @Test func noWordIsListedTwice() {
+        let hints = DictationVocabulary.hints(project: "/p/deploy")
+        #expect(hints.filter { $0.lowercased() == "deploy" }.count == 1)
+        #expect(Set(hints.map { $0.lowercased() }).count == hints.count)
+    }
+
+    @Test func withoutAProjectOnlyCodingWordsAreExpected() {
+        #expect(DictationVocabulary.hints(project: nil) == DictationVocabulary.coding)
     }
 }

@@ -16,7 +16,7 @@ final class ScriptedSpeechEngine: SpeechEngine, @unchecked Sendable {
         self.words = words.split(separator: " ")
     }
 
-    func listen(locale: Locale) -> AsyncThrowingStream<SpeechEvent, Error> {
+    func listen(locale: Locale, hints: [String]) -> AsyncThrowingStream<SpeechEvent, Error> {
         let (stream, events) = AsyncThrowingStream<SpeechEvent, Error>.makeStream()
         let words = words
         let task = Task { [weak self] in

@@ -12,11 +12,11 @@ final class SystemSpeechEngine: SpeechEngine, @unchecked Sendable {
     private let lock = NSLock()
     private var run: Run?
 
-    func listen(locale: Locale) -> AsyncThrowingStream<SpeechEvent, Error> {
+    func listen(locale: Locale, hints: [String]) -> AsyncThrowingStream<SpeechEvent, Error> {
         let (stream, events) = AsyncThrowingStream<SpeechEvent, Error>.makeStream()
         let run = Run(events: events)
         lock.withLock { self.run = run }
-        Task { await run.go(locale: locale) }
+        Task { await run.go(locale: locale, hints: hints) }
         return stream
     }
 
@@ -30,17 +30,16 @@ final class SystemSpeechEngine: SpeechEngine, @unchecked Sendable {
 
     /// The system's own matching of a locale to one it can transcribe.
     static func supportedLocale(equivalentTo locale: Locale) async -> Locale? {
-        if SpeechTranscriber.isAvailable, let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
-            return match
-        }
-        return await DictationTranscriber.supportedLocale(equivalentTo: locale)
+        if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) { return match }
+        guard SpeechTranscriber.isAvailable else { return nil }
+        return await SpeechTranscriber.supportedLocale(equivalentTo: locale)
     }
 
     /// Every language this phone can transcribe.
     static func supportedLocales() async -> [Locale] {
         var seen = Set<String>()
         let general = SpeechTranscriber.isAvailable ? await SpeechTranscriber.supportedLocales : []
-        return (general + (await DictationTranscriber.supportedLocales))
+        return ((await DictationTranscriber.supportedLocales) + general)
             .filter { seen.insert($0.identifier(.bcp47)).inserted }
     }
 }
@@ -58,17 +57,22 @@ private actor Run {
         self.events = events
     }
 
-    func go(locale: Locale) async {
+    func go(locale: Locale, hints: [String]) async {
         do {
             guard await AVAudioApplication.requestRecordPermission() else { throw SpeechProblem.microphoneDenied }
-            // The general-purpose model where the phone has it; the system
-            // dictation model on older devices and for the other languages.
-            if SpeechTranscriber.isAvailable, let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            // The system dictation model first: it is the one that can be
+            // told which words to expect, and prompts are full of names
+            // and coding terms. The general model covers the languages
+            // dictation doesn't have.
+            if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+                let module = DictationTranscriber(
+                    locale: match, contentHints: [.shortForm], transcriptionOptions: [.punctuation],
+                    reportingOptions: [.volatileResults, .frequentFinalization], attributeOptions: [])
+                try await transcribe(with: module, locale: match, hints: hints) { $0.text }
+            } else if SpeechTranscriber.isAvailable,
+                      let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
                 let module = SpeechTranscriber(locale: match, preset: .progressiveTranscription)
-                try await transcribe(with: module, locale: match) { $0.text }
-            } else if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
-                let module = DictationTranscriber(locale: match, preset: .progressiveShortDictation)
-                try await transcribe(with: module, locale: match) { $0.text }
+                try await transcribe(with: module, locale: match, hints: []) { $0.text }
             } else {
                 throw SpeechProblem.unsupportedLanguage
             }
@@ -96,7 +100,7 @@ private actor Run {
     }
 
     private func transcribe<Module: SpeechModule>(
-        with module: Module, locale: Locale, text: @Sendable (Module.Result) -> AttributedString
+        with module: Module, locale: Locale, hints: [String], text: @Sendable (Module.Result) -> AttributedString
     ) async throws {
         try await install(module, locale: locale)
         guard !closed else { return }
@@ -119,6 +123,11 @@ private actor Run {
 
         let analyzer = SpeechAnalyzer(
             modules: [module], options: .init(priority: .userInitiated, modelRetention: .lingering))
+        if !hints.isEmpty {
+            let context = AnalysisContext()
+            context.contextualStrings[.general] = hints
+            try await analyzer.setContext(context)
+        }
         try await analyzer.prepareToAnalyze(in: wanted)
         guard !closed else { return }
 

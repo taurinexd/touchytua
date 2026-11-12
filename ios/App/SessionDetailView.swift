@@ -41,7 +41,7 @@ struct SessionDetailView: View {
                     }
                 }
                 if let round = session.round {
-                    RoundView(round: round, waiting: session.state == .waiting)
+                    RoundView(round: round, prompt: session.roundPrompt, waiting: session.state == .waiting)
                 } else {
                     Text("Nothing has happened in this session yet.")
                         .font(Theme.body(15))
@@ -52,7 +52,7 @@ struct SessionDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.interactively)
-        .safeAreaInset(edge: .bottom) { PromptBar(sessionId: session.id) }
+        .safeAreaInset(edge: .bottom) { PromptBar(sessionId: session.id, project: session.cwd) }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 8) {
@@ -70,6 +70,8 @@ struct SessionDetailView: View {
 /// "This Round": how long, how much, and what Claude said.
 struct RoundView: View {
     let round: Round
+    /// What the person asked for in this round, unless the title says it.
+    var prompt: String?
     /// The session is stopped on a request for the person.
     var waiting = false
 
@@ -85,6 +87,13 @@ struct RoundView: View {
                         .foregroundStyle(Theme.textTertiary)
                         .monospacedDigit()
                 }
+            }
+            if let prompt {
+                Text(prompt)
+                    .font(Theme.display(17, .bold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(6)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if let summary = round.summary, !summary.isEmpty {
                 MarkdownView(text: summary)

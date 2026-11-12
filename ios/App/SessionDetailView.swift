@@ -84,6 +84,9 @@ struct SessionDetailView: View {
                 .frame(maxHeight: answering == nil ? nil : 0)
                 .clipped()
                 .opacity(answering == nil ? 1 : 0)
+                // Clipping cut the bar's own background off the strip below
+                // it, and the text scrolled into view there.
+                .background(Theme.background)
                 .allowsHitTesting(answering == nil)
                 .accessibilityHidden(answering != nil)
         }

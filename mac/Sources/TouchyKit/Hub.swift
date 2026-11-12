@@ -50,12 +50,15 @@ public actor Hub {
     }
 
     /// Sessions saved by a previous run. Live ones win: an event received
-    /// since startup is newer than anything on disk.
+    /// since startup is newer than anything on disk. That event also saved
+    /// a registry with nothing but its own session in it: the whole one is
+    /// written back.
     public func restore(_ saved: [StoredSession]) {
         for entry in saved where sessions[entry.session.id] == nil {
             sessions[entry.session.id] = entry.session
             inbox[entry.session.id] = entry.inbox
         }
+        if !saved.isEmpty { save() }
     }
 
     private func save() {

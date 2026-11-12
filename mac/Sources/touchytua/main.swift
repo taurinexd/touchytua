@@ -43,6 +43,11 @@ func installBinaries() -> Bool {
     let fm = FileManager.default
     try? fm.createDirectory(atPath: binDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     try? fm.createDirectory(atPath: runDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    // A session started before an update still runs the old plugin copy.
+    let versionPath = binDir + "/version"
+    let installed = fm.contents(atPath: versionPath).map { String(decoding: $0, as: UTF8.self) }
+    guard Setup.mayInstall(shipped: Setup.version, over: installed) else { return false }
+    fm.createFile(atPath: versionPath, contents: Data(Setup.version.utf8))
     var changed = false
     for name in binaries {
         let src = shippedDir + "/" + name, dst = binDir + "/" + name
@@ -111,10 +116,10 @@ func printConflicts() {
     let found = ConflictScan.scan(home: URL(fileURLWithPath: NSHomeDirectory()),
                                   projectDir: URL(fileURLWithPath: FileManager.default.currentDirectoryPath))
     if found.isEmpty {
-        say("Nessun altro tool gestisce approvazioni o domande.")
+        say("No other tool handles approvals or questions.")
         return
     }
-    say("Altri tool che possono rispondere ad approvazioni o domande (touchytua convive: vince la prima risposta):")
+    say("Other tools that can answer approvals or questions (touchytua works alongside them: the first answer wins):")
     for c in found { say("  • [\(c.source)] \(c.event) \(c.matcher == "*" ? "" : "(\(c.matcher)) ")→ \(c.command)") }
 }
 
@@ -150,16 +155,16 @@ func pair(openPNG: Bool, printQR: Bool) throws {
     if let png = qrPNG(url) {
         let path = store.qrImagePath
         FileManager.default.createFile(atPath: path, contents: png, attributes: [.posixPermissions: 0o600])
-        say("QR pronto: \(path)")
-        say("Scansionalo con l'app touchytua entro \(minutes) minuti. Vale una volta sola; il file viene cancellato dopo l'uso.")
+        say("QR code ready: \(path)")
+        say("Scan it with the touchytua app within \(minutes) minutes. It works once; the file is deleted after use.")
         if openPNG { run("/usr/bin/open", [path]) }
     }
     if printQR {
-        say("\n" + (Setup.terminalQR(url) ?? "(QR non disponibile)"))
+        say("\n" + (Setup.terminalQR(url) ?? "(QR code not available)"))
     }
-    say("Indirizzi: \(endpoints.joined(separator: ", "))")
+    say("Addresses: \(endpoints.joined(separator: ", "))")
     if tsName == nil {
-        say("Per usare touchytua fuori casa installa Tailscale su Mac e iPhone, poi rilancia /pair.")
+        say("To use touchytua away from your Wi-Fi, install Tailscale on the Mac and the iPhone, then run /pair again.")
     }
     say("")
     printConflicts()
@@ -174,22 +179,22 @@ func qrPNG(_ text: String) -> Data? {
 }
 
 func doctor() {
-    if let pid = daemonPid() { say("Daemon: attivo (pid \(pid))") } else { say("Daemon: non attivo") }
-    say("Avvio automatico: \(FileManager.default.fileExists(atPath: plistPath) ? "LaunchAgent installato" : "non installato (esegui /pair)")")
+    if let pid = daemonPid() { say("Daemon: running (pid \(pid))") } else { say("Daemon: not running") }
+    say("Start at login: \(FileManager.default.fileExists(atPath: plistPath) ? "LaunchAgent installed" : "not installed (run /pair)")")
     let store = PairingStore(directory: home)
     let state = store.load()
-    let waiting = store.activeSecret(now: Date()) != nil ? " — QR in attesa di scansione" : ""
+    let waiting = store.activeSecret(now: Date()) != nil ? " (a QR code is waiting to be scanned)" : ""
     if state.phoneKey != nil {
-        say("Telefono: accoppiato\(state.deviceName.map { " (\($0))" } ?? "")\(waiting)")
+        say("Phone: paired\(state.deviceName.map { " (\($0))" } ?? "")\(waiting)")
     } else {
-        say("Telefono: non accoppiato\(waiting)")
+        say("Phone: not paired\(waiting)")
     }
     if let inbound = ConflictScan.crossSessionInbound(home: URL(fileURLWithPath: NSHomeDirectory())),
        inbound != "accept" {
-        say("Attenzione: crossSessionInbound=\(inbound) nelle impostazioni di Claude Code. I prompt inviati dal telefono vengono \(inbound == "refuse" ? "scartati" : "trattenuti").")
+        say("Warning: crossSessionInbound=\(inbound) in Claude Code's settings. Prompts sent from the phone are \(inbound == "refuse" ? "discarded" : "held back").")
     }
     let previous = StatusLineChain.previousCommand(stateDirectory: home)
-    say("Statusline in catena: \(FileManager.default.fileExists(atPath: home + "/statusline-previous.json") ? "installata\(previous.map { " (precedente: \($0))" } ?? "")" : "non installata")")
+    say("Chained status line: \(FileManager.default.fileExists(atPath: home + "/statusline-previous.json") ? "installed\(previous.map { " (previous: \($0))" } ?? "")" : "not installed")")
     printConflicts()
 }
 
@@ -200,12 +205,12 @@ func statusLine(_ action: String) throws {
         installBinaries()
         let backup = try StatusLineChain.install(settingsURL: settings, wrapperPath: binDir + "/touchytua-statusline",
                                                  stateDirectory: home)
-        say("Statusline in catena installata. Backup: \(backup.path)")
+        say("Chained status line installed. Backup: \(backup.path)")
     case "uninstall":
         try StatusLineChain.uninstall(settingsURL: settings, stateDirectory: home)
-        say("Statusline ripristinata.")
+        say("Status line restored.")
     default:
-        say("uso: touchytua statusline install|uninstall"); exit(2)
+        say("usage: touchytua statusline install|uninstall"); exit(2)
     }
 }
 
@@ -216,7 +221,7 @@ do {
     case "daemon" where args.contains("--ensure"): ensureDaemon()
     case "statusline": try statusLine(args.dropFirst().first ?? "")
     default:
-        say("uso: touchytua pair [--no-open] [--terminal] | doctor | daemon --ensure | statusline install|uninstall")
+        say("usage: touchytua pair [--no-open] [--terminal] | doctor | daemon --ensure | statusline install|uninstall")
         exit(2)
     }
 } catch {

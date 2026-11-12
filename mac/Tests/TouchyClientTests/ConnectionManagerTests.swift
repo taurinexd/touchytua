@@ -367,6 +367,25 @@ actor Gate {
         await manager.prompt(sessionId: "s1", text: "run the tests")
 
         #expect(await eventually { manager.notice == ConnectionManager.promptNotDeliveredMessage })
+        #expect(manager.outbox.waiting(in: "s1").isEmpty)
+    }
+
+    @Test func aSentPromptStaysOnScreenUntilClaudeTakesIt() async {
+        let mac = pairedMac(endpoints: [lan])
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+
+        await manager.prompt(sessionId: "s1", text: "run the tests")
+        #expect(manager.outbox.waiting(in: "s1").map(\.text) == ["run the tests"])
+
+        _ = await mac.hub.handle(HookEnvelope(v: 1, capturedAt: 5, event: [
+            "hook_event_name": .string("UserPromptSubmit"), "session_id": .string("s1"), "cwd": .string("/p"),
+            "prompt": .string("run the tests")]))
+        #expect(await eventually { manager.outbox.waiting(in: "s1").isEmpty })
     }
 
     // MARK: lifecycle

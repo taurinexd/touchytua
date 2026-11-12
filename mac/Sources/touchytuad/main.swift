@@ -43,6 +43,9 @@ final class ChangeRelay: @unchecked Sendable {
 
 let relay = ChangeRelay()
 let sessionStore = SessionStore(path: runDir + "/sessions.json")
+// Read before the hook socket opens: the first event to come in saves a
+// registry of its own, and a hook held back by a restart comes in at once.
+let savedSessions = sessionStore.load()
 let hub = Hub(onChange: { relay.forward($0) }, persist: { sessionStore.save($0) })
 let store = PairingStore(directory: home)
 let router = PhoneRouter(hub: hub) { inbox, text in try InboxInjector.inject(text: text, into: inbox) }
@@ -68,7 +71,7 @@ do {
 // isolated, and a handler running on another queue traps at runtime.
 let reapSeconds = env["TOUCHYTUA_REAP_SECONDS"].flatMap(Double.init) ?? 60
 Task {
-    await hub.restore(sessionStore.load())
+    await hub.restore(savedSessions)
     while true {
         await hub.reap { InboxInjector.isReachable($0) }
         try? await Task.sleep(nanoseconds: UInt64(reapSeconds * 1e9))

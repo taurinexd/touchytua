@@ -10,6 +10,9 @@ final class ScriptedEngine: SpeechEngine, @unchecked Sendable {
     private var _hints: [[String]] = []
     private var _stops = 0
     private var _cancels = 0
+    /// What the engine throws when it is told to drop everything, as the
+    /// system analyzer does.
+    var failsWhenCancelled: SpeechProblem?
     /// What the engine still recognizes after the microphone closes.
     var lastWords: [SpeechEvent] = []
 
@@ -42,7 +45,7 @@ final class ScriptedEngine: SpeechEngine, @unchecked Sendable {
             _cancels += 1
             return self.feed
         }
-        feed?.finish()
+        if let failsWhenCancelled { feed?.finish(throwing: failsWhenCancelled) } else { feed?.finish() }
     }
 
     func say(_ events: SpeechEvent...) {
@@ -145,6 +148,20 @@ private let italian = Locale(identifier: "it_IT")
         #expect(dictation.phase == .idle)
         #expect(engine.cancels == 1)
         #expect(engine.stops == 0)
+    }
+
+    @Test func cancellingIsNotReportedAsAProblem() async {
+        engine.failsWhenCancelled = .failed
+        let dictation = Dictation(engine: engine)
+        dictation.start(after: "keep me", locale: italian)
+        engine.say(.listening, .partial("drop this"))
+        #expect(await eventually { dictation.text == "keep me drop this" })
+
+        await dictation.cancel()
+
+        #expect(dictation.problem == nil)
+        #expect(dictation.text == "keep me")
+        #expect(dictation.phase == .idle)
     }
 
     @Test func theModelDownloadShowsItsProgress() async {

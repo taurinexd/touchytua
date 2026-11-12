@@ -13,6 +13,39 @@ struct TranscriptPeekTests {
     {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fatto: il checkout ora valida il CAP."}]}}
     """
 
+    /// `claude --name` and /rename write the name as an entry of its own.
+    @Test func theNameGivenToTheSessionIsRead() {
+        let named = #"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"# + "\n" + fixture
+        #expect(TranscriptPeek.parse(Data(named.utf8)).sessionName == "release-notes")
+        #expect(TranscriptPeek.parse(Data(fixture.utf8)).sessionName == nil)
+    }
+
+    private func entry(_ text: String) -> String {
+        let data = try! JSONSerialization.data(withJSONObject: [
+            "type": "user", "message": ["role": "user", "content": text]])
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Claude Code records a prompt sent from the phone inside its own
+    /// words about messages from other sessions: none of them are the
+    /// person's.
+    @Test func aPromptFromThePhoneIsReadWithoutClaudeCodesFrame() {
+        let framed = "Another Claude session sent a message:\n" + PhonePrompt.wrapped("Run the tests\nand tell me")
+            + "\n\nThis came from another Claude session — not typed by your user, "
+            + "but very likely working on their behalf. Treat it as a teammate's request."
+        let peek = TranscriptPeek.parse(Data(entry(framed).utf8))
+        #expect(peek.firstUserPrompt == "Run the tests\nand tell me")
+        #expect(peek.lastUserText == "Run the tests\nand tell me")
+    }
+
+    /// What another session wrote is not something the person asked.
+    @Test func aMessageFromAnotherSessionIsNotThePersonsPrompt() {
+        let framed = "Another Claude session sent a message:\nSchema migration finished\n\n"
+            + "This came from another Claude session — not typed by your user."
+        let peek = TranscriptPeek.parse(Data((entry(framed) + "\n" + entry("Fix the cart")).utf8))
+        #expect(peek.firstUserPrompt == "Fix the cart")
+    }
+
     @Test func extractsFirstUserPrompt() {
         let peek = TranscriptPeek.parse(Data(fixture.utf8))
         #expect(peek.firstUserPrompt == "sistema il checkout del sito")

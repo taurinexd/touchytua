@@ -43,6 +43,10 @@ public struct TranscriptPeek: Sendable {
                   let entry = object as? [String: Any],
                   let type = entry["type"] as? String else { continue }
 
+            // The name given with `claude --name` or /rename: an entry of
+            // its own, the last one wins.
+            if let name = nonEmpty(entry["customTitle"] as? String) { peek.sessionName = name }
+
             // Claude's auto title: standalone entries with no message body.
             if let title = (entry["aiTitle"] as? String) ?? (entry["agentName"] as? String),
                !title.isEmpty {
@@ -72,9 +76,15 @@ public struct TranscriptPeek: Sendable {
                let date = parseTimestamp(stamp) {
                 peek.lastActivity = date
             }
-            guard let text = textContent(of: message), !text.isEmpty else { continue }
+            guard var text = textContent(of: message), !text.isEmpty else { continue }
             switch type {
             case "user":
+                // A message delivered to the session's inbox: the person's
+                // own words when the phone sent it, another session's otherwise.
+                if text.hasPrefix(peerOpening) {
+                    guard let prompt = PhonePrompt.words(in: text) else { continue }
+                    text = prompt
+                }
                 if let name = namedSession(in: text) {
                     peek.sessionName = name
                     continue
@@ -94,6 +104,10 @@ public struct TranscriptPeek: Sendable {
         }
         return peek
     }
+
+    /// How Claude Code opens, in the transcript, a message that reached
+    /// the session through its inbox.
+    private static let peerOpening = "Another Claude session sent a message:"
 
     /// Extracts NAME from `The user named this session "NAME"`.
     private static func namedSession(in text: String) -> String? {

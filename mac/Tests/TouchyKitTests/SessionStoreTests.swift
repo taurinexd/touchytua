@@ -49,6 +49,27 @@ import Testing
         #expect(await hub.inbox["idle"]?.token == "tok")
     }
 
+    /// A hook held back by a restart reaches the new daemon at once: what
+    /// it saves must not be the only thing left of the registry.
+    @Test func anEventBeforeTheRestoreDoesNotEraseTheIdleSessions() async {
+        let path = tempPath()
+        let store = SessionStore(path: path)
+        let idle = StoredSession(
+            session: Session(id: "idle", title: "idle", cwd: "/p", state: .done, lastEventAt: Date(timeIntervalSince1970: 2)),
+            inbox: InboxCredentials(socket: "/tmp/i.sock", token: "tok"))
+        store.save([idle])
+        // What the daemon does at startup: read first, then listen.
+        let saved = store.load()
+        let hub = Hub(persist: { store.save($0) })
+        _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 50, event: [
+            "hook_event_name": .string("UserPromptSubmit"), "session_id": .string("live"), "cwd": .string("/p/app")],
+            messagingSocket: "/tmp/l.sock", messagingToken: "tok"))
+
+        await hub.restore(saved)
+
+        #expect(Set(store.load().map(\.session.id)) == ["idle", "live"])
+    }
+
     @Test func hubPersistsOnVisibleChangesOnly() async {
         let path = tempPath()
         let store = SessionStore(path: path)

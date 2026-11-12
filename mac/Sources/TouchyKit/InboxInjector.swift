@@ -2,8 +2,8 @@ import Foundation
 
 /// Delivers a prompt to a Claude Code session through its inbox socket:
 /// an auth line with the session's token, then a user line (phase-0 T1).
-/// Claude Code presents it as a message from another session; callers add
-/// `PhoneRouter.promptPrefix`.
+/// Claude Code presents it as a message from another session, here under
+/// the name `PhonePrompt.sender`.
 public enum InboxInjector {
     public enum Failure: Error, Equatable { case connectFailed }
 
@@ -38,7 +38,9 @@ public enum InboxInjector {
         let auth: JSONValue = .object(["type": .string("auth"), "token": .string(inbox.token)])
         let user: JSONValue = .object([
             "type": .string("user"),
-            "message": .object(["role": .string("user"), "content": .string(text)]),
+            "message": .object(["role": .string("user"), "content": .string(PhonePrompt.wrapped(text))]),
+            "from": .string(PhonePrompt.sender),
+            "msg_id": .string(UUID().uuidString.lowercased()),
         ])
         let encoder = JSONEncoder()
         var payload = try encoder.encode(auth)

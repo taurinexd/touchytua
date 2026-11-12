@@ -211,6 +211,31 @@ import TouchyProtocol
         #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: true) == "Paused for your answer")
         #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: false) == "Working for 1m16s")
     }
+
+    @Test func aRunningRoundSaysWhatItIsDoing() {
+        let start = Date(timeIntervalSince1970: 1000)
+        let round = Round(startedAt: start, tokens: 3700, activity: "Writing the draft")
+        #expect(round.doing == "Writing the draft…")
+        #expect(round.progress(now: start.addingTimeInterval(79)) == "1m19s · ↓ 4k token")
+    }
+
+    @Test func aRunningRoundWithNothingToSayIsWorking() {
+        let start = Date(timeIntervalSince1970: 1000)
+        #expect(Round(startedAt: start).doing == "Working…")
+        #expect(Round(startedAt: start).progress(now: start.addingTimeInterval(12)) == "12s")
+    }
+
+    @Test func anActivityAlreadyCutIsNotCutTwice() {
+        #expect(Round(startedAt: Date(), activity: "Reading a very long name…").doing == "Reading a very long name…")
+    }
+
+    /// A dialog only the terminal can answer: the phone has no card for it,
+    /// and "your answer" would point at nothing.
+    @Test func aPauseThePhoneCannotAnswerSaysWhereToAnswer() {
+        let start = Date(timeIntervalSince1970: 1000)
+        let caption = Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: true, answerable: false)
+        #expect(caption == "Waiting for you on your Mac")
+    }
 }
 
 @Suite struct RoundPromptTests {

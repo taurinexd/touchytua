@@ -53,10 +53,14 @@ struct PermissionCard: View {
 struct QuestionCard: View {
     @Environment(ConnectionManager.self) private var connection
     let request: PendingRequest
+    /// Set to this request while one of its own-answer fields has the keyboard.
+    @Binding var answering: String?
     /// Picked labels, by question text.
     @State private var picked: [String: Set<String>] = [:]
     /// Answers typed in the person's own words, by question text.
     @State private var written: [String: String] = [:]
+    /// The question whose own-answer field has the keyboard.
+    @FocusState private var typingIn: String?
 
     var body: some View {
         let questions = request.questions
@@ -90,6 +94,16 @@ struct QuestionCard: View {
         }
         .padding(14)
         .card(glow: Theme.yellow)
+        .onChange(of: typingIn) { _, question in
+            if question != nil {
+                answering = request.id
+            } else if answering == request.id {
+                answering = nil
+            }
+        }
+        .onDisappear {
+            if answering == request.id { answering = nil }
+        }
     }
 
     private func optionRow(_ question: Question, index: Int, option: Question.Option) -> some View {
@@ -150,6 +164,7 @@ struct QuestionCard: View {
             .font(Theme.body(16))
             .foregroundStyle(Theme.text)
             .lineLimit(1...4)
+            .focused($typingIn, equals: question.text)
             .padding(.horizontal, 14)
             .padding(.vertical, 13)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))

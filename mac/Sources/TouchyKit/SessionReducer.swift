@@ -8,23 +8,36 @@ public enum SessionReducer {
         "Stop", "StopFailure", "SessionEnd",
     ]
 
-    /// The first line of a prompt, without the phone prefix, at most 120
+    /// What Claude Code submits by itself, as a prompt, when a background
+    /// command ends or it has a reminder for Claude: markup nobody wrote.
+    /// The same goes for what another session, or an agent, wrote to this one.
+    static let machinePrompts = [
+        "<task-notification>", "<system-reminder>", "<cross-session-message", "<agent-message",
+    ]
+
+    /// The words of a prompt a person wrote, out of the wrapper a phone
+    /// prompt travels in. Nil for the prompts nobody wrote.
+    static func written(_ prompt: String?) -> String? {
+        guard let prompt else { return nil }
+        if let words = PhonePrompt.words(in: prompt) { return words }
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return machinePrompts.contains(where: text.hasPrefix) ? nil : text
+    }
+
+    /// The first line of a prompt, at most 120
     /// characters. Nil when nothing readable is left.
     static func title(fromPrompt prompt: String?) -> String? {
-        guard var text = prompt else { return nil }
-        if text.hasPrefix(PhoneRouter.promptPrefix) { text.removeFirst(PhoneRouter.promptPrefix.count) }
+        guard let text = written(prompt) else { return nil }
         let line = text.split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty }
         return line.map { clipped($0, to: 120) }
     }
 
-    /// A prompt as the phone shows it above the reply: without the phone
-    /// prefix, at most 600 characters. Nil when nothing readable is left.
+    /// A prompt as the phone shows it above the reply: at most 600
+    /// characters. Nil when nothing readable is left.
     static func roundPrompt(from prompt: String?) -> String? {
-        guard var text = prompt else { return nil }
-        if text.hasPrefix(PhoneRouter.promptPrefix) { text.removeFirst(PhoneRouter.promptPrefix.count) }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text = written(prompt) else { return nil }
         return text.isEmpty ? nil : clipped(text, to: 600)
     }
 
@@ -92,10 +105,11 @@ public enum SessionReducer {
             session.state = name == "Stop" ? .done : .error
             var round = session.round ?? Round(startedAt: at)
             round.endedAt = at
+            round.activity = nil
             if let summary = envelope.event["last_assistant_message"]?.stringValue {
                 // The prefix is for Claude: when a reply quotes a phone
                 // prompt, the phone shows the words without it.
-                round.summary = summary.replacingOccurrences(of: PhoneRouter.promptPrefix, with: "")
+                round.summary = PhonePrompt.unmarked(summary)
             }
             session.round = round
         default:

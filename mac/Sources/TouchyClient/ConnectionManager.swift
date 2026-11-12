@@ -54,6 +54,8 @@ public final class ConnectionManager {
     public private(set) var macName: String?
     /// A problem worth a line on screen that is not a connection problem.
     public private(set) var notice: String?
+    /// The prompts sent from here that Claude has not taken up yet.
+    public private(set) var outbox = Outbox()
 
     @ObservationIgnored private let store: any SecretStore
     @ObservationIgnored private let deviceName: String
@@ -154,6 +156,7 @@ public final class ConnectionManager {
         state = ClientState()
         macName = nil
         notice = nil
+        outbox = Outbox()
         status = .unpaired
     }
 
@@ -170,6 +173,7 @@ public final class ConnectionManager {
     public func prompt(sessionId: String, text: String) async {
         guard let link, case .connected = status else { return }
         notice = nil
+        outbox.sent(text, to: state.sessions.first { $0.id == sessionId })
         await link.send(.prompt(sessionId: sessionId, text: text))
     }
 
@@ -327,11 +331,13 @@ public final class ConnectionManager {
     private func receive(_ message: MacToPhone) {
         guard case let .error(code) = message else {
             state.apply(message)
+            outbox.settle(with: state.sessions)
             return
         }
         // `unknown_request` needs nothing: the card was removed on the tap.
         if code == "inject_failed" || code == "unknown_session" {
             notice = Self.promptNotDeliveredMessage
+            outbox.dropLast()
         }
     }
 }

@@ -88,9 +88,20 @@ private func waitUntilOpen(_ pending: PendingRequests, _ id: String) async {
         #expect(Set(ids) == ["aaaaaaaa", "bbbbbbbb"])
     }
 
-    @Test func newPermissionClosesOlderOfSession() {
-        let ids = PendingPolicy.requestsToClose(after: env("PermissionRequest", tool: "Bash"), open: open)
-        #expect(Set(ids) == ["aaaaaaaa", "bbbbbbbb"])
+    /// Two tool calls of one turn each ask for permission, and both dialogs
+    /// are open at once: the second must not take the first off the phone.
+    @Test func aSecondRequestOfTheSameTurnLeavesTheFirstOpen() {
+        let ids = PendingPolicy.requestsToClose(
+            after: env("PermissionRequest", tool: "Read", input: ["file_path": .string("/y")]), open: open)
+        #expect(ids.isEmpty)
+    }
+
+    /// The same call asked again (its hook was sent twice, around a daemon
+    /// restart) replaces the request it repeats.
+    @Test func theSameCallAskedAgainReplacesItsRequest() {
+        let ids = PendingPolicy.requestsToClose(
+            after: env("PermissionRequest", tool: "Bash", input: ["command": .string("ls")]), open: open)
+        #expect(ids == ["aaaaaaaa"])
     }
 
     @Test func preToolUseClosesNothing() {

@@ -140,18 +140,181 @@ private final class Changes: @unchecked Sendable {
 }
 
 @Suite struct HubChangeTests {
-    /// Tool calls inside one turn do not change what the phone shows:
-    /// they must not be re-sent.
+    /// Only what changes on the phone is sent: a tool call once, for the
+    /// line that says what the session is doing, and not again when it ends
+    /// or repeats.
     @Test func eventsThatChangeNothingVisibleAreNotEmitted() async {
         let changes = Changes()
         let hub = Hub { changes.add($0) }
         _ = await hub.handle(env("UserPromptSubmit", at: 1))
         #expect(changes.sessionUpdates == 1)
         _ = await hub.handle(env("PreToolUse", at: 2, extra: ["tool_name": .string("Bash")]))
-        _ = await hub.handle(env("PostToolUse", at: 3, extra: ["tool_name": .string("Bash")]))
-        #expect(changes.sessionUpdates == 1)
-        _ = await hub.handle(env("Stop", at: 4))
         #expect(changes.sessionUpdates == 2)
+        _ = await hub.handle(env("PostToolUse", at: 3, extra: ["tool_name": .string("Bash")]))
+        _ = await hub.handle(env("PreToolUse", at: 4, extra: ["tool_name": .string("Bash")]))
+        _ = await hub.handle(env("PostToolUse", at: 5, extra: ["tool_name": .string("Bash")]))
+        #expect(changes.sessionUpdates == 2)
+        _ = await hub.handle(env("Stop", at: 6))
+        #expect(changes.sessionUpdates == 3)
+    }
+}
+
+@Suite struct HubNameTests {
+    private func transcript(_ lines: String...) throws -> String {
+        let path = NSTemporaryDirectory() + "tt-name-" + UUID().uuidString + ".jsonl"
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    /// A session started with a name is called by it from its first
+    /// prompt: several of them waiting for approval must be told apart.
+    @Test func aNamedSessionIsCalledByItsNameFromTheFirstPrompt() async throws {
+        let path = try transcript(#"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: [
+            "prompt": .string("Write the release notes"), "transcript_path": .string(path)]))
+        let session = await hub.sessions["s1"]
+        #expect(session?.title == "release-notes")
+        #expect(session?.round?.prompt == "Write the release notes")
+    }
+
+    @Test func aSessionWithoutANameIsCalledByItsFirstPrompt() async throws {
+        let path = try transcript(#"{"type":"mode","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: [
+            "prompt": .string("Write the release notes"), "transcript_path": .string(path)]))
+        #expect(await hub.sessions["s1"]?.title == "Write the release notes")
+    }
+
+    /// The name wins over the title Claude makes up.
+    @Test func theGivenNameWinsWhenTheRoundEnds() async throws {
+        let path = try transcript(
+            #"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"#,
+            #"{"type":"ai-title","aiTitle":"Cart release notes","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: ["prompt": .string("Write them")]))
+        _ = await hub.handle(env("Stop", at: 2, extra: ["transcript_path": .string(path)]))
+        #expect(await hub.sessions["s1"]?.title == "release-notes")
+    }
+}
+
+@Suite struct HubResumeTests {
+    private func ask(_ hub: Hub, file: String, at: Double) -> Task<Data, Never> {
+        Task {
+            await hub.handle(env("PermissionRequest", at: at, extra: [
+                "tool_name": .string("Read"), "tool_input": .object(["file_path": .string(file)])]))
+        }
+    }
+
+    private func open(_ hub: Hub, _ count: Int) async -> [PendingRequest] {
+        for _ in 0..<400 where await hub.pending.openRequests.count != count {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return await hub.pending.openRequests
+    }
+
+    /// No hook fires between an approval and the end of the tool it
+    /// allowed: without this a long command would look like a pause.
+    @Test func approvingFromThePhonePutsTheSessionBackToWork() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let hook = ask(hub, file: "/a", at: 2)
+        let request = await open(hub, 1)[0]
+        #expect(await hub.sessions["s1"]?.state == .waiting)
+
+        #expect(await hub.decide(requestId: request.id, allow: true, message: nil))
+
+        #expect(await hub.sessions["s1"]?.state == .working)
+        _ = await hook.value
+    }
+
+    @Test func theSessionWaitsUntilItsLastRequestIsAnswered() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let first = ask(hub, file: "/a", at: 2)
+        _ = await open(hub, 1)
+        let second = ask(hub, file: "/b", at: 3)
+        let requests = await open(hub, 2)
+
+        #expect(await hub.decide(requestId: requests[0].id, allow: true, message: nil))
+        #expect(await hub.sessions["s1"]?.state == .waiting)
+        #expect(await hub.decide(requestId: requests[1].id, allow: false, message: nil))
+        #expect(await hub.sessions["s1"]?.state == .working)
+        _ = await first.value
+        _ = await second.value
+    }
+}
+
+@Suite struct HubActivityTests {
+    private func tool(_ event: String, _ name: String, at: Double, input: [String: JSONValue] = [:],
+                      response: JSONValue? = nil, transcript: String? = nil) -> HookEnvelope {
+        var extra: [String: JSONValue] = ["tool_name": .string(name), "tool_input": .object(input)]
+        if let response { extra["tool_response"] = response }
+        if let transcript { extra["transcript_path"] = .string(transcript) }
+        return env(event, at: at, extra: extra)
+    }
+
+    @Test func aToolCallNamesWhatTheSessionIsDoing() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        #expect(await hub.sessions["s1"]?.round?.activity == nil)
+        _ = await hub.handle(tool("PreToolUse", "Read", at: 2, input: ["file_path": .string("/p/app/Cart.swift")]))
+        #expect(await hub.sessions["s1"]?.round?.activity == "Reading Cart.swift")
+    }
+
+    @Test func theTaskInProgressNamesTheWorkWhateverTheTool() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        _ = await hub.handle(tool("PostToolUse", "TaskCreate", at: 2, input: ["subject": .string("Draft"), "activeForm": .string("Writing the draft")],
+                                  response: .object(["task": .object(["id": .string("4")])])))
+        _ = await hub.handle(tool("PostToolUse", "TaskUpdate", at: 3, input: ["taskId": .string("4"), "status": .string("in_progress")]))
+        #expect(await hub.sessions["s1"]?.round?.activity == "Writing the draft")
+        _ = await hub.handle(tool("PreToolUse", "Read", at: 4, input: ["file_path": .string("/p/app/Cart.swift")]))
+        #expect(await hub.sessions["s1"]?.round?.activity == "Writing the draft")
+    }
+
+    @Test func aFinishedTaskStopsNamingTheWork() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        _ = await hub.handle(tool("PostToolUse", "TaskUpdate", at: 2, input: [
+            "taskId": .string("4"), "status": .string("in_progress"), "activeForm": .string("Writing the draft")]))
+        _ = await hub.handle(tool("PostToolUse", "TaskUpdate", at: 3, input: ["taskId": .string("4"), "status": .string("completed")]))
+        #expect(await hub.sessions["s1"]?.round?.activity == nil)
+        _ = await hub.handle(tool("PreToolUse", "Bash", at: 4, input: ["description": .string("Run the tests")]))
+        #expect(await hub.sessions["s1"]?.round?.activity == "Run the tests")
+    }
+
+    @Test func theActivityEndsWithTheRound() async {
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        _ = await hub.handle(tool("PreToolUse", "Bash", at: 2, input: ["description": .string("Run the tests")]))
+        _ = await hub.handle(env("Stop", at: 3))
+        #expect(await hub.sessions["s1"]?.round?.activity == nil)
+    }
+
+    private func line(_ id: String, _ stamp: String, tokens: Int) -> String {
+        #"{"type":"assistant","timestamp":"\#(stamp)","message":{"id":"\#(id)","content":[],"usage":{"output_tokens":\#(tokens)}}}"# + "\n"
+    }
+
+    /// Reading the transcript at every tool call would be wasteful: the
+    /// count moves at most every five seconds.
+    @Test func tokensAreCountedWhileTheRoundRuns() async throws {
+        let path = NSTemporaryDirectory() + "tt-live-" + UUID().uuidString + ".jsonl"
+        try Data(line("msg_1", "2026-11-11T16:14:00.000Z", tokens: 120).utf8).write(to: URL(fileURLWithPath: path))
+        let hub = Hub()
+        let start = ISO8601DateFormatter().date(from: "2026-11-11T16:13:56Z")!.timeIntervalSince1970
+        _ = await hub.handle(env("UserPromptSubmit", at: start))
+        _ = await hub.handle(tool("PostToolUse", "Bash", at: start + 6, transcript: path))
+        #expect(await hub.sessions["s1"]?.round?.tokens == 120)
+
+        let handle = try #require(FileHandle(forWritingAtPath: path))
+        handle.seekToEndOfFile()
+        handle.write(Data(line("msg_2", "2026-11-11T16:14:05.000Z", tokens: 80).utf8))
+        try handle.close()
+        _ = await hub.handle(tool("PostToolUse", "Bash", at: start + 8, transcript: path))
+        #expect(await hub.sessions["s1"]?.round?.tokens == 120)
+        _ = await hub.handle(tool("PostToolUse", "Bash", at: start + 12, transcript: path))
+        #expect(await hub.sessions["s1"]?.round?.tokens == 200)
     }
 }
 

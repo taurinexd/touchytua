@@ -49,9 +49,13 @@ let router = PhoneRouter(hub: hub) { inbox, text in try InboxInjector.inject(tex
 let phoneServer = PhoneServer(store: store, router: router, macName: Host.current().localizedName ?? "Mac")
 relay.phone = phoneServer
 
-let hookServer = HookServer(path: env["TOUCHYTUA_HOOK_SOCKET"] ?? runDir + "/hook.sock", hub: hub)
+let hookSocket = env["TOUCHYTUA_HOOK_SOCKET"] ?? runDir + "/hook.sock"
+let hookServer = HookServer(path: hookSocket, hub: hub)
 do {
     try hookServer.start()
+    // Hooks held back by a restart may come in now.
+    try? FileManager.default.removeItem(
+        atPath: (hookSocket as NSString).deletingLastPathComponent + "/" + Setup.restartMarkerName)
     try phoneServer.start(port: env["TOUCHYTUA_PORT"].flatMap(UInt16.init) ?? PhoneServer.port)
 } catch {
     Log.info("cannot start: \(error)")

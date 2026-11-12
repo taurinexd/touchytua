@@ -55,6 +55,8 @@ struct QuestionCard: View {
     let request: PendingRequest
     /// Picked labels, by question text.
     @State private var picked: [String: Set<String>] = [:]
+    /// Answers typed in the person's own words, by question text.
+    @State private var written: [String: String] = [:]
 
     var body: some View {
         let questions = request.questions
@@ -75,14 +77,15 @@ struct QuestionCard: View {
                     ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
                         optionRow(question, index: index, option: option)
                     }
+                    ownAnswerRow(question)
                 }
             }
             Button("Send") {
-                guard let answers = Question.answers(to: questions, picked: picked) else { return }
+                guard let answers = Question.answers(to: questions, picked: picked, written: written) else { return }
                 Task { await connection.answer(request.id, answers: answers) }
             }
             .buttonStyle(ActionButtonStyle(color: Theme.yellow))
-            .disabled(Question.answers(to: questions, picked: picked) == nil)
+            .disabled(Question.answers(to: questions, picked: picked, written: written) == nil)
             .accessibilityLabel("Send answer")
         }
         .padding(14)
@@ -97,6 +100,8 @@ struct QuestionCard: View {
                 if isPicked { labels.remove(option.label) } else { labels.insert(option.label) }
             } else {
                 labels = [option.label]
+                // One answer only: the pick takes the place of the typed one.
+                written[question.text] = nil
             }
             picked[question.text] = labels
         } label: {
@@ -128,6 +133,31 @@ struct QuestionCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isPicked ? .isSelected : [])
+    }
+
+    /// The answer Claude Code always allows besides its options: your own.
+    private func ownAnswerRow(_ question: Question) -> some View {
+        let isUsed = !(written[question.text] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return TextField(
+            "Something else…",
+            text: Binding(
+                get: { written[question.text] ?? "" },
+                set: { text in
+                    written[question.text] = text
+                    if !question.multiSelect, !text.isEmpty { picked[question.text] = [] }
+                }),
+            axis: .vertical)
+            .font(Theme.body(16))
+            .foregroundStyle(Theme.text)
+            .lineLimit(1...4)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(isUsed ? Theme.yellow : Theme.border, lineWidth: isUsed ? 1.5 : 1)
+            }
+            .accessibilityLabel("Your own answer to: \(question.text)")
     }
 
     /// A, B, C… then numbers once the alphabet runs out.

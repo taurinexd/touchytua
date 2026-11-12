@@ -16,6 +16,10 @@ final class PhoneServer: @unchecked Sendable {
     private let lock = NSLock()
     private var connections: [ObjectIdentifier: PhoneConnection] = [:]
     private var bonjour: DNSServiceRef?
+    private let limit = ConnectionLimit(max: 16)
+    /// How long a new connection has to say hello before it is dropped.
+    private let greetingSeconds = ProcessInfo.processInfo.environment["TOUCHYTUA_GREETING_SECONDS"]
+        .flatMap(Double.init) ?? 10
 
     init(store: PairingStore, router: PhoneRouter, macName: String) {
         self.store = store
@@ -72,10 +76,23 @@ final class PhoneServer: @unchecked Sendable {
         while true {
             let fd = accept(listenFD, nil, nil)
             if fd < 0 { continue }
+            // One phone is paired: a handful of connections covers it
+            // reconnecting while old ones wind down.
+            guard limit.admit() else { close(fd); continue }
             var on: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-            Thread.detachNewThread { [self] in serve(fd) }
+            Self.setReadTimeout(fd, seconds: greetingSeconds)
+            Thread.detachNewThread { [self] in
+                serve(fd)
+                limit.release()
+            }
         }
+    }
+
+    /// How long `read` may wait; 0 waits forever.
+    private static func setReadTimeout(_ fd: Int32, seconds: Double) {
+        var time = timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - seconds.rounded(.down)) * 1_000_000))
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &time, socklen_t(MemoryLayout<timeval>.size))
     }
 
     /// One connection: HTTP upgrade, then a frame loop until close.
@@ -109,11 +126,19 @@ final class PhoneServer: @unchecked Sendable {
             writer.shutdown()
             close(fd)
         }
+        var greeted = false
         while true {
             do {
                 while let frame = try WebSocket.decodeFrame(from: &buffer) {
                     switch frame.opcode {
-                    case WebSocket.opBinary, WebSocket.opText: connection.receive(frame.payload)
+                    case WebSocket.opBinary, WebSocket.opText:
+                        // It said hello: from here it is either the paired
+                        // phone, which may stay quiet for hours, or closed.
+                        if !greeted {
+                            greeted = true
+                            Self.setReadTimeout(fd, seconds: 0)
+                        }
+                        connection.receive(frame.payload)
                     case WebSocket.opPing: _ = writer.write(WebSocket.encodeFrame(opcode: WebSocket.opPong, payload: frame.payload))
                     case WebSocket.opClose:
                         _ = writer.write(WebSocket.encodeFrame(opcode: WebSocket.opClose, payload: Data()))

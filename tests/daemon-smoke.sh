@@ -8,8 +8,12 @@ D="$1"; H="$2"
 HOME_T=$(mktemp -d /tmp/ttd.XXXXXX); trap 'kill $PID $NC 2>/dev/null; rm -rf "$HOME_T"' EXIT
 fail=0
 # Reaper every 2 s: it runs at start, then well after the first check below.
-TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=2 "$D" 2>"$HOME_T/log" &
+# A restart in progress leaves a marker that makes hooks wait: the daemon
+# clears it once it listens.
+mkdir -p "$HOME_T/run"; : > "$HOME_T/run/restarting"
+TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=2 TOUCHYTUA_GREETING_SECONDS=1 "$D" 2>"$HOME_T/log" &
 PID=$!; sleep 0.7
+[ ! -e "$HOME_T/run/restarting" ] && [ -S "$HOME_T/run/hook.sock" ] && echo "PASS restart marker cleared once listening" || { echo "FAIL restart marker still there"; fail=1; }
 nc -lkU "$HOME_T/live.sock" >/dev/null 2>&1 &
 NC=$!; sleep 0.2
 send() { echo "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$1\",\"cwd\":\"/p/$1\"}" |
@@ -20,6 +24,16 @@ sleep 0.3
 sleep 3
 kill -0 $PID 2>/dev/null && echo "PASS daemon alive after reaper runs" || { echo "FAIL daemon died: $(tail -2 "$HOME_T/log")"; fail=1; }
 /usr/bin/jq -e 'map(.session.id)==["live"]' "$HOME_T/run/sessions.json" >/dev/null && echo "PASS dead session reaped, live kept" || { echo "FAIL reap: $(cat "$HOME_T/run/sessions.json" 2>&1)"; fail=1; }
+# A connection that never says hello is dropped: anyone on the network can
+# open one, and each holds a thread.
+took=$(perl -MIO::Socket::INET -MTime::HiRes=time -e '
+  $s = IO::Socket::INET->new(PeerAddr => "127.0.0.1:47398", Timeout => 2) or do { print "none"; exit };
+  $s->sockopt(SO_RCVTIMEO, pack("l!l!", 6, 0)); $t = time; $n = sysread($s, $b, 1);
+  print defined($n) && $n == 0 ? int((time - $t) * 1000) : "kept"')
+case "$took" in
+  none|kept) echo "FAIL silent connection: $took"; fail=1 ;;
+  *) [ "$took" -le 3000 ] && echo "PASS silent connection dropped (${took} ms)" || { echo "FAIL silent connection dropped late (${took} ms)"; fail=1; } ;;
+esac
 # Restart: the registry comes back from disk.
 kill $PID; wait $PID 2>/dev/null
 TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=30 "$D" 2>>"$HOME_T/log" &

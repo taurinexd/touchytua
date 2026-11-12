@@ -3,6 +3,30 @@ import Foundation
 
 /// Helpers for `touchytua pair` / `daemon --ensure`.
 public enum Setup {
+    /// The plugin's version, the same as in its manifest.
+    public static let version = "0.3.2"
+
+    /// Whether a plugin copy of version `shipped` may put its binaries in
+    /// place of the installed ones. A session started before an update
+    /// still runs the old copy: it must not bring the old daemon back.
+    public static func mayInstall(shipped: String, over installed: String?) -> Bool {
+        func numbers(_ version: String) -> [Int]? {
+            let parts = version.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ".").map { Int($0) }
+            return parts.isEmpty || parts.contains(nil) ? nil : parts.compactMap { $0 }
+        }
+        guard let mine = numbers(shipped), let theirs = installed.flatMap(numbers) else { return true }
+        for index in 0..<max(mine.count, theirs.count) {
+            let a = index < mine.count ? mine[index] : 0, b = index < theirs.count ? theirs[index] : 0
+            if a != b { return a > b }
+        }
+        return true
+    }
+
+    /// A file next to the hook socket that says the daemon is being
+    /// replaced. Hooks that find it fresh wait for the new daemon instead
+    /// of dropping their event; the daemon removes it once it listens.
+    public static let restartMarkerName = "restarting"
+
     public static let launchAgentLabel = "com.taurinexd.touchytua"
 
     /// MagicDNS name of this Mac from `tailscale status --json`, nil when

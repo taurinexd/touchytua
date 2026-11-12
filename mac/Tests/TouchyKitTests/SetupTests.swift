@@ -40,4 +40,32 @@ import Testing
         #expect(plist["RunAtLoad"] as? Bool == true)
         #expect(plist["StandardErrorPath"] as? String == "/Users/u/.touchytua/run/daemon.log")
     }
+
+    @Test func theVersionIsTheOneOfThePluginManifest() throws {
+        let manifest = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plugin/.claude-plugin/plugin.json")
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: manifest)) as? [String: Any]
+        #expect(json?["version"] as? String == Setup.version)
+    }
+
+    @Test func aNewerCopyReplacesTheInstalledOne() {
+        #expect(Setup.mayInstall(shipped: "0.3.2", over: "0.3.1"))
+        #expect(Setup.mayInstall(shipped: "0.10.0", over: "0.9.9"))
+        #expect(Setup.mayInstall(shipped: "1.0.0", over: "0.99.99"))
+    }
+
+    @Test func theSameVersionMayBeInstalledAgain() {
+        #expect(Setup.mayInstall(shipped: "0.3.2", over: "0.3.2\n"))
+    }
+
+    @Test func anOlderCopyNeverReplacesANewerOne() {
+        #expect(!Setup.mayInstall(shipped: "0.3.1", over: "0.3.2"))
+        #expect(!Setup.mayInstall(shipped: "0.9.9", over: "0.10.0"))
+    }
+
+    @Test func withNothingReadableInstalledAnyCopyGoesIn() {
+        #expect(Setup.mayInstall(shipped: "0.3.2", over: nil))
+        #expect(Setup.mayInstall(shipped: "0.3.2", over: "garbage"))
+    }
 }

@@ -78,6 +78,7 @@ public actor Hub {
         let existed = before != nil
         SessionReducer.apply(envelope, to: &sessions)
         if name == "Stop" || name == "StopFailure" { enrichRound(sessionId, envelope) }
+        if name == "UserPromptSubmit" || name == "PermissionRequest" { nameSession(sessionId, envelope) }
         follow(sessionId, name, envelope)
         if let session = sessions[sessionId] {
             // Every event carries the inbox credentials: a daemon restarted
@@ -208,10 +209,20 @@ public actor Hub {
             lookAgain(id, path: path, roundStartedAt: start)
         }
         let peek = TranscriptPeek.read(path: path)
-        if let title = peek.aiTitle ?? peek.sessionName ?? peek.firstUserPrompt, !title.isEmpty {
+        if let title = peek.sessionName ?? peek.aiTitle ?? peek.firstUserPrompt, !title.isEmpty {
             session.title = title
         }
         sessions[id] = session
+    }
+
+    /// Calls a session by the name it was given, or by Claude's title for
+    /// it, as soon as the transcript has one: before the first round ends
+    /// the only other name is the prompt, and sessions waiting for an
+    /// approval must be told apart.
+    private func nameSession(_ id: String, _ envelope: HookEnvelope) {
+        guard let path = envelope.event["transcript_path"]?.stringValue else { return }
+        let peek = TranscriptPeek.read(path: path)
+        if let title = peek.sessionName ?? peek.aiTitle, !title.isEmpty { sessions[id]?.title = title }
     }
 
     private func lookAgain(_ id: String, path: String, roundStartedAt start: Date) {

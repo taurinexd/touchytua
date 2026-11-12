@@ -83,6 +83,7 @@ struct SessionDetailView: View {
             PromptBar(sessionId: session.id, project: session.cwd)
                 .frame(maxHeight: answering == nil ? nil : 0)
                 .clipped()
+                .opacity(answering == nil ? 1 : 0)
                 .allowsHitTesting(answering == nil)
                 .accessibilityHidden(answering != nil)
         }
@@ -147,7 +148,8 @@ struct RoundView: View {
 /// right now, as Claude Code shows it in the terminal.
 struct ActivityLine: View {
     let round: Round
-    private static let frames = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
+    // None of these has an emoji form: iOS would draw "✳" as a green tile.
+    private static let frames = ["·", "✢", "✲", "✶", "✻", "✽", "✻", "✶", "✲", "✢"]
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.12)) { timeline in

@@ -43,6 +43,10 @@ public struct TranscriptPeek: Sendable {
                   let entry = object as? [String: Any],
                   let type = entry["type"] as? String else { continue }
 
+            // The name given with `claude --name` or /rename: an entry of
+            // its own, the last one wins.
+            if let name = nonEmpty(entry["customTitle"] as? String) { peek.sessionName = name }
+
             // Claude's auto title: standalone entries with no message body.
             if let title = (entry["aiTitle"] as? String) ?? (entry["agentName"] as? String),
                !title.isEmpty {

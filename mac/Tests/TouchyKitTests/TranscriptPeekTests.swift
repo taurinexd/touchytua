@@ -13,6 +13,13 @@ struct TranscriptPeekTests {
     {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Fatto: il checkout ora valida il CAP."}]}}
     """
 
+    /// `claude --name` and /rename write the name as an entry of its own.
+    @Test func theNameGivenToTheSessionIsRead() {
+        let named = #"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"# + "\n" + fixture
+        #expect(TranscriptPeek.parse(Data(named.utf8)).sessionName == "release-notes")
+        #expect(TranscriptPeek.parse(Data(fixture.utf8)).sessionName == nil)
+    }
+
     @Test func extractsFirstUserPrompt() {
         let peek = TranscriptPeek.parse(Data(fixture.utf8))
         #expect(peek.firstUserPrompt == "sistema il checkout del sito")

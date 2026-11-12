@@ -159,6 +159,45 @@ private final class Changes: @unchecked Sendable {
     }
 }
 
+@Suite struct HubNameTests {
+    private func transcript(_ lines: String...) throws -> String {
+        let path = NSTemporaryDirectory() + "tt-name-" + UUID().uuidString + ".jsonl"
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    /// A session started with a name is called by it from its first
+    /// prompt: several of them waiting for approval must be told apart.
+    @Test func aNamedSessionIsCalledByItsNameFromTheFirstPrompt() async throws {
+        let path = try transcript(#"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: [
+            "prompt": .string("Write the release notes"), "transcript_path": .string(path)]))
+        let session = await hub.sessions["s1"]
+        #expect(session?.title == "release-notes")
+        #expect(session?.round?.prompt == "Write the release notes")
+    }
+
+    @Test func aSessionWithoutANameIsCalledByItsFirstPrompt() async throws {
+        let path = try transcript(#"{"type":"mode","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: [
+            "prompt": .string("Write the release notes"), "transcript_path": .string(path)]))
+        #expect(await hub.sessions["s1"]?.title == "Write the release notes")
+    }
+
+    /// The name wins over the title Claude makes up.
+    @Test func theGivenNameWinsWhenTheRoundEnds() async throws {
+        let path = try transcript(
+            #"{"type":"custom-title","customTitle":"release-notes","sessionId":"s1"}"#,
+            #"{"type":"ai-title","aiTitle":"Cart release notes","sessionId":"s1"}"#)
+        let hub = Hub()
+        _ = await hub.handle(env("UserPromptSubmit", at: 1, extra: ["prompt": .string("Write them")]))
+        _ = await hub.handle(env("Stop", at: 2, extra: ["transcript_path": .string(path)]))
+        #expect(await hub.sessions["s1"]?.title == "release-notes")
+    }
+}
+
 @Suite struct HubResumeTests {
     private func ask(_ hub: Hub, file: String, at: Double) -> Task<Data, Never> {
         Task {

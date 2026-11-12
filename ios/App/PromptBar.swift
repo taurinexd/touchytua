@@ -299,7 +299,7 @@ struct Waveform: View {
     /// and the middle ones reach higher.
     private func height(of index: Int, at time: TimeInterval) -> CGFloat {
         let middle = 1 - abs(Double(index) - Double(bars - 1) / 2) / Double(bars)
-        let swing = 0.55 + 0.45 * sin(time * 9 + Double(index) * 1.3)
-        return 3 + 19 * CGFloat(Double(level) * middle * swing)
+        let swing = 0.7 + 0.3 * sin(time * 9 + Double(index) * 1.3)
+        return 3 + 21 * CGFloat(Double(level) * middle * swing)
     }
 }

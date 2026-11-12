@@ -259,12 +259,13 @@ private final class Tap: @unchecked Sendable {
         return status == .error || converted.frameLength == 0 ? nil : converted
     }
 
-    /// Loudness from 0 to 1: silence below -50 dB, full at 0 dB.
+    /// Loudness from 0 to 1: silence below -55 dB, full at -15 dB. The
+    /// microphone runs without gain control, where speech sits around -35 dB.
     private static func level(of buffer: AVAudioPCMBuffer) -> Float {
         guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
         var sum: Float = 0
         for index in 0..<Int(buffer.frameLength) { sum += samples[index] * samples[index] }
         let decibels = 10 * log10(max(sum / Float(buffer.frameLength), 1e-10))
-        return min(1, max(0, (decibels + 50) / 50))
+        return min(1, max(0, (decibels + 55) / 40))
     }
 }

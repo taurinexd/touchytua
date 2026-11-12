@@ -44,6 +44,7 @@ import Testing
         ]
         await hub.restore(saved)
         #expect(await hub.sessions["live"]?.state == .working)
+        #expect(await hub.sessions["live"]?.title == "stale")
         #expect(await hub.inbox["live"] == nil)
         #expect(await hub.sessions["idle"]?.title == "idle")
         #expect(await hub.inbox["idle"]?.token == "tok")
@@ -84,6 +85,26 @@ import Testing
         let restarted = Hub()
         await restarted.restore(store.load())
         #expect(await restarted.transcript(of: "s1") == "/t/s1.jsonl")
+    }
+
+    /// An event that beats the restore makes a session from scratch: it
+    /// must not lose the name and the round the registry had for it.
+    @Test func aSessionSeenBeforeTheRestoreKeepsItsNameAndRound() async {
+        let hub = Hub()
+        _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 50, event: [
+            "hook_event_name": .string("PreToolUse"), "session_id": .string("live"), "cwd": .string("/p/app"),
+            "tool_name": .string("Bash")]))
+        #expect(await hub.sessions["live"]?.title == "app")
+        let round = Round(startedAt: Date(timeIntervalSince1970: 40), prompt: "Fix the cart")
+        await hub.restore([StoredSession(
+            session: Session(id: "live", title: "cart-totals", cwd: "/p/app", state: .done, round: round,
+                             lastEventAt: Date(timeIntervalSince1970: 41)),
+            inbox: InboxCredentials(socket: "/tmp/l.sock", token: "tok"), transcript: "/t/live.jsonl")])
+
+        let session = await hub.sessions["live"]
+        #expect(session?.state == .working)
+        #expect(session?.title == "cart-totals")
+        #expect(session?.round?.prompt == "Fix the cart")
     }
 
     @Test func hubPersistsOnVisibleChangesOnly() async {

@@ -57,10 +57,22 @@ public actor Hub {
     /// a registry with nothing but its own session in it: the whole one is
     /// written back.
     public func restore(_ saved: [StoredSession]) {
-        for entry in saved where sessions[entry.session.id] == nil {
-            sessions[entry.session.id] = entry.session
-            inbox[entry.session.id] = entry.inbox
-            transcripts[entry.session.id] = entry.transcript
+        for entry in saved {
+            let id = entry.session.id
+            guard var live = sessions[id] else {
+                sessions[id] = entry.session
+                inbox[id] = entry.inbox
+                transcripts[id] = entry.transcript
+                continue
+            }
+            // An event beat the restore and made the session from scratch:
+            // it still goes by the name, and shows the round, it had.
+            if live.title == (live.cwd as NSString).lastPathComponent { live.title = entry.session.title }
+            if live.round == nil { live.round = entry.session.round }
+            if live != sessions[id] {
+                sessions[id] = live
+                onChange(.session(live))
+            }
         }
         if !saved.isEmpty { save() }
     }

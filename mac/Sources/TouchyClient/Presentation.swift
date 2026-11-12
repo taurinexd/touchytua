@@ -50,8 +50,10 @@ extension Session {
 
 extension Round {
     /// "Worked for 1m35s · 2k token", or "Working for 12s" while it runs.
-    public func caption(now: Date, waiting: Bool = false) -> String {
-        if waiting, endedAt == nil { return "Paused for your answer" }
+    /// `answerable` is false when the session waits on something the phone
+    /// has no card for: a dialog only the terminal can answer.
+    public func caption(now: Date, waiting: Bool = false, answerable: Bool = true) -> String {
+        if waiting, endedAt == nil { return answerable ? "Paused for your answer" : "Waiting for you on your Mac" }
         let time = endedAt.map { "Worked for " + Format.duration($0.timeIntervalSince(startedAt)) }
             ?? "Working for " + Format.duration(now.timeIntervalSince(startedAt))
         return tokens.map { time + " · " + Format.tokens($0) } ?? time

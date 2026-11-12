@@ -211,6 +211,14 @@ import TouchyProtocol
         #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: true) == "Paused for your answer")
         #expect(Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: false) == "Working for 1m16s")
     }
+
+    /// A dialog only the terminal can answer: the phone has no card for it,
+    /// and "your answer" would point at nothing.
+    @Test func aPauseThePhoneCannotAnswerSaysWhereToAnswer() {
+        let start = Date(timeIntervalSince1970: 1000)
+        let caption = Round(startedAt: start).caption(now: start.addingTimeInterval(76), waiting: true, answerable: false)
+        #expect(caption == "Waiting for you on your Mac")
+    }
 }
 
 @Suite struct RoundPromptTests {

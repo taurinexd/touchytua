@@ -79,8 +79,11 @@ private actor Run {
             release()
             events.finish()
         } catch {
-            log.error("dictation failed: \(String(reflecting: error), privacy: .public)")
             release()
+            // Closing the microphone ends the analyzer, and dropping what it
+            // heard makes it throw: that is the dictation ending as asked.
+            guard !closed else { return events.finish() }
+            log.error("dictation failed: \(String(reflecting: error), privacy: .public)")
             events.finish(throwing: error as? SpeechProblem ?? SpeechProblem.failed)
         }
     }
@@ -223,6 +226,8 @@ private final class Tap: @unchecked Sendable {
     private let wanted: AVAudioFormat
     private let audio: AsyncStream<AnalyzerInput>.Continuation
     private let events: AsyncThrowingStream<SpeechEvent, Error>.Continuation
+    /// Only the audio thread touches it.
+    private var meter = VoiceMeter()
 
     init(
         from heard: AVAudioFormat, to wanted: AVAudioFormat,
@@ -236,7 +241,7 @@ private final class Tap: @unchecked Sendable {
     }
 
     func take(_ buffer: AVAudioPCMBuffer) {
-        events.yield(.level(Self.level(of: buffer)))
+        events.yield(.level(meter.level(decibels: Self.loudness(of: buffer))))
         if let converted = convert(buffer) { audio.yield(AnalyzerInput(buffer: converted)) }
     }
 
@@ -259,13 +264,11 @@ private final class Tap: @unchecked Sendable {
         return status == .error || converted.frameLength == 0 ? nil : converted
     }
 
-    /// Loudness from 0 to 1: silence below -55 dB, full at -15 dB. The
-    /// microphone runs without gain control, where speech sits around -35 dB.
-    private static func level(of buffer: AVAudioPCMBuffer) -> Float {
-        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
+    /// How loud the buffer is, in decibels below full scale.
+    private static func loudness(of buffer: AVAudioPCMBuffer) -> Float {
+        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return -.infinity }
         var sum: Float = 0
         for index in 0..<Int(buffer.frameLength) { sum += samples[index] * samples[index] }
-        let decibels = 10 * log10(max(sum / Float(buffer.frameLength), 1e-10))
-        return min(1, max(0, (decibels + 55) / 40))
+        return 10 * log10(max(sum / Float(buffer.frameLength), 1e-10))
     }
 }

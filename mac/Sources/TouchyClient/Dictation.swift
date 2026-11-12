@@ -73,6 +73,9 @@ public final class Dictation {
     private var settled = ""
     private var guess = ""
     private var listener: Task<Void, Never>?
+    /// The person dropped this dictation: however the engine ends it, that
+    /// is not a problem to report.
+    private var dropped = false
 
     public init(engine: any SpeechEngine) {
         self.engine = engine
@@ -86,13 +89,14 @@ public final class Dictation {
         guess = ""
         text = typed
         problem = nil
+        dropped = false
         phase = .preparing(nil)
         let events = engine.listen(locale: locale, hints: hints)
         listener = Task { [weak self] in
             do {
                 for try await event in events { self?.take(event) }
             } catch {
-                self?.problem = ((error as? SpeechProblem) ?? .failed).message
+                if self?.dropped == false { self?.problem = ((error as? SpeechProblem) ?? .failed).message }
             }
             self?.phase = .idle
             self?.level = 0
@@ -111,6 +115,7 @@ public final class Dictation {
     /// Closes the microphone and puts back what was typed.
     public func cancel() async {
         guard let listener, phase != .idle else { return }
+        dropped = true
         await engine.cancel()
         await listener.value
         text = typed

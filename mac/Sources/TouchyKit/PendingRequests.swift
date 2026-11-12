@@ -99,14 +99,13 @@ public enum PendingPolicy {
         guard let name = envelope.eventName, let session = envelope.sessionId else { return [] }
         let mine = open.filter { $0.sessionId == session }
         switch name {
-        case "PostToolUse", "PostToolUseFailure":
-            // Only the call that ran: parallel sibling calls must not close it.
+        case "PostToolUse", "PostToolUseFailure", "PermissionRequest":
+            // Only the call that ran, or that asks again (its hook is sent
+            // twice around a daemon restart). The calls of one turn ask for
+            // permission side by side: a sibling must not close it.
             let tool = envelope.event["tool_name"]?.stringValue
             let input = envelope.event["tool_input"]?.objectValue
             return mine.filter { $0.toolName == tool && $0.toolInput == input }.map(\.id)
-        case "PermissionRequest":
-            // Permission prompts are sequential: a new one means the old one is gone.
-            return mine.map(\.id)
         case "Stop", "StopFailure", "UserPromptSubmit", "SessionEnd":
             return mine.map(\.id)
         default:

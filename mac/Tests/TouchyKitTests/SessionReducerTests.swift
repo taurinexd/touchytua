@@ -93,6 +93,33 @@ private func envelope(
         #expect(sessions["s1"]?.round?.prompt == nil)
     }
 
+    /// Claude Code starts a round by itself when a background command ends:
+    /// what it submits then is markup for Claude, not something the person wrote.
+    @Test func aRoundStartedByABackgroundTaskHasNoPrompt() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("<task-notification>\n<task-id>b224</task-id>\n<status>completed</status>\n</task-notification>"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round != nil)
+        #expect(sessions["s1"]?.round?.prompt == nil)
+    }
+
+    @Test func aBackgroundTaskDoesNotNameTheSession() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("<task-notification>\n<task-id>b224</task-id>\n</task-notification>"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.title == "app")
+    }
+
+    @Test func aPromptThatOnlyMentionsMarkupIsKept() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [
+            "prompt": .string("Why does <task-notification> show up?"),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.prompt == "Why does <task-notification> show up?")
+    }
+
     @Test func theRoundKeepsItsPromptWhenItEnds() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: ["prompt": .string("Fix the cart")]), to: &sessions)

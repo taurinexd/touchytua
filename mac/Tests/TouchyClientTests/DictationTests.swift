@@ -201,15 +201,23 @@ private let italian = Locale(identifier: "it_IT")
 
 @Suite struct HoldToTalkTests {
     @Test func aReleaseSendsWhatWasSaid() {
-        #expect(HoldToTalk.prompt(heldFor: 1.2, text: " Run the tests.\n") == "Run the tests.")
+        #expect(HoldToTalk.prompt(heldFor: 1.2, typed: "", text: " Run the tests.\n") == "Run the tests.")
+    }
+
+    @Test func whatWasTypedIsSentWithWhatWasSaid() {
+        #expect(HoldToTalk.prompt(heldFor: 1.2, typed: "fix the", text: "fix the login bug") == "fix the login bug")
     }
 
     @Test func aBriefTouchSendsNothing() {
-        #expect(HoldToTalk.prompt(heldFor: 0.2, text: "Run") == nil)
+        #expect(HoldToTalk.prompt(heldFor: 0.2, typed: "", text: "Run") == nil)
     }
 
     @Test func silenceSendsNothing() {
-        #expect(HoldToTalk.prompt(heldFor: 3, text: "  \n") == nil)
+        #expect(HoldToTalk.prompt(heldFor: 3, typed: "", text: "  \n") == nil)
+    }
+
+    @Test func holdingInSilenceDoesNotSendWhatWasTyped() {
+        #expect(HoldToTalk.prompt(heldFor: 3, typed: "a draft", text: "a draft") == nil)
     }
 }
 

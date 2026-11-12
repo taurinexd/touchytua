@@ -5,6 +5,11 @@ struct SettingsView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingUnpair = false
+    @AppStorage(DictationSettings.holdToSend) private var holdToSend = false
+    @AppStorage(DictationSettings.language) private var language = ""
+    @State private var languages: [DictationLanguage.Name] = []
+    /// The language dictation uses when none is chosen.
+    @State private var automatic: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -34,6 +39,36 @@ struct SettingsView: View {
                             .font(Theme.body(13))
                             .foregroundStyle(Theme.textTertiary)
                     }
+                    VStack(alignment: .leading, spacing: 10) {
+                        section("Dictation") {
+                            Menu {
+                                Picker("Language", selection: $language) {
+                                    Text(automatic.map { "Automatic · \($0)" } ?? "Automatic").tag("")
+                                    ForEach(languages) { Text($0.name).tag($0.id) }
+                                }
+                            } label: {
+                                row("Language", languageName, chevron: true)
+                            }
+                            .accessibilityLabel("Dictation language")
+                            divider
+                            Toggle(isOn: $holdToSend) {
+                                Text("Hold to talk")
+                                    .font(Theme.body(16))
+                                    .foregroundStyle(Theme.text)
+                            }
+                            .tint(Theme.greenDeep)
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: 50)
+                        }
+                        Text(holdToSend
+                            ? "Hold the microphone while you speak. Releasing sends the prompt right away; slide your finger away to cancel."
+                            : "Tap the microphone to start and again to stop. Your words go into the message, where you can fix them before sending.")
+                            .font(Theme.body(13))
+                            .foregroundStyle(Theme.textTertiary)
+                        Text("Speech is turned into text on this iPhone. Audio is never sent anywhere.")
+                            .font(Theme.body(13))
+                            .foregroundStyle(Theme.textTertiary)
+                    }
                     section("About") {
                         row("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                         divider
@@ -48,6 +83,11 @@ struct SettingsView: View {
         }
         .background(Theme.background)
         .presentationBackground(Theme.background)
+        .task {
+            languages = DictationLanguage.names(for: await SystemSpeechEngine.supportedLocales())
+            let device = await SystemSpeechEngine.supportedLocale(equivalentTo: DictationSettings.deviceLocale)
+            automatic = DictationLanguage.names(for: [device].compactMap { $0 }).first?.name
+        }
         .confirmationDialog("Unpair this Mac?", isPresented: $confirmingUnpair, titleVisibility: .visible) {
             Button("Unpair", role: .destructive) {
                 connection.unpair()
@@ -69,7 +109,12 @@ struct SettingsView: View {
         }
     }
 
-    private func row(_ name: String, _ value: String) -> some View {
+    private var languageName: String {
+        if language.isEmpty { return automatic.map { "Automatic · \($0)" } ?? "Automatic" }
+        return languages.first { $0.id == language }?.name ?? language
+    }
+
+    private func row(_ name: String, _ value: String, chevron: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text(name)
                 .font(Theme.body(16))
@@ -79,6 +124,11 @@ struct SettingsView: View {
                 .font(Theme.body(16))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.trailing)
+            if chevron {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.textTertiary)
+            }
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 50)

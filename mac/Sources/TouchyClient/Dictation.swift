@@ -145,9 +145,12 @@ public enum HoldToTalk {
     /// A touch shorter than this is a slip of the finger, not a message.
     public static let shortestHold: TimeInterval = 0.3
 
-    public static func prompt(heldFor seconds: TimeInterval, text: String) -> String? {
-        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return seconds >= shortestHold && !text.isEmpty ? text : nil
+    /// The prompt to send on release: what was typed plus what was said, or
+    /// nothing when the touch was too short or nothing was said.
+    public static func prompt(heldFor seconds: TimeInterval, typed: String, text: String) -> String? {
+        let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard seconds >= shortestHold, !prompt.isEmpty, text != typed else { return nil }
+        return prompt
     }
 }
 

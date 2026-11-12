@@ -83,7 +83,9 @@ public enum SessionReducer {
             var round = session.round ?? Round(startedAt: at)
             round.endedAt = at
             if let summary = envelope.event["last_assistant_message"]?.stringValue {
-                round.summary = summary
+                // The prefix is for Claude: when a reply quotes a phone
+                // prompt, the phone shows the words without it.
+                round.summary = summary.replacingOccurrences(of: PhoneRouter.promptPrefix, with: "")
             }
             session.round = round
         default:

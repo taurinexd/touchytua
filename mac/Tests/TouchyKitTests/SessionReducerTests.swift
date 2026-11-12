@@ -51,6 +51,15 @@ private func envelope(
         #expect(sessions["s1"]?.title == "Run the tests")
     }
 
+    @Test func aReplyQuotingAPhonePromptLosesThePrefix() {
+        var sessions: [String: Session] = [:]
+        SessionReducer.apply(envelope("UserPromptSubmit", at: 101), to: &sessions)
+        SessionReducer.apply(envelope("Stop", at: 130, extra: [
+            "last_assistant_message": .string("You asked: \"" + PhoneRouter.promptPrefix + "Run the tests\". Done."),
+        ]), to: &sessions)
+        #expect(sessions["s1"]?.round?.summary == "You asked: \"Run the tests\". Done.")
+    }
+
     @Test func aLongPromptIsCutForTheTitle() {
         var sessions: [String: Session] = [:]
         SessionReducer.apply(envelope("UserPromptSubmit", at: 101, extra: [

@@ -1,6 +1,6 @@
 # touchytua
 
-Control your Claude Code sessions from your iPhone: live status of every session, approve or deny permission requests, answer questions, type or dictate the next prompt. Dictation is transcribed on the iPhone: audio never leaves it.
+Control your Claude Code sessions from your iPhone: live status of every session, approve or deny permission requests, answer questions, type or dictate the next prompt, read back the earlier conversation. Dictation is transcribed on the iPhone: audio never leaves it.
 
 This repository holds both sides:
 - `plugin/` — the Claude Code plugin (hooks, `/pair`, `/doctor`, prebuilt universal binaries);

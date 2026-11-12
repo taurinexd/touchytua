@@ -28,12 +28,15 @@ public enum Activity {
         case "Agent", "Task": line = described ?? "Running an agent"
         case "Skill": line = "Using " + (input["skill"]?.stringValue.flatMap(nonEmpty) ?? "a skill")
         default:
-            // mcp__<server>__<tool>: the server is the name people know.
-            let parts = tool.components(separatedBy: "__")
-            let name = tool.hasPrefix("mcp__") && parts.count >= 3 ? parts[1].replacingOccurrences(of: "_", with: " ") : tool
-            line = "Using " + name
+            line = "Using " + toolName(tool)
         }
         return SessionReducer.clipped(line, to: 80)
+    }
+
+    /// A tool's name as people know it: for mcp__<server>__<tool>, the server.
+    public static func toolName(_ tool: String) -> String {
+        let parts = tool.components(separatedBy: "__")
+        return tool.hasPrefix("mcp__") && parts.count >= 3 ? parts[1].replacingOccurrences(of: "_", with: " ") : tool
     }
 
     private static func nonEmpty(_ text: String) -> String? {

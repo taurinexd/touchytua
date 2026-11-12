@@ -47,9 +47,12 @@ public struct InboxCredentials: Codable, Equatable, Sendable {
 public struct StoredSession: Codable, Equatable, Sendable {
     public let session: Session
     public let inbox: InboxCredentials?
+    /// Where the session's transcript is: its earlier conversation.
+    public let transcript: String?
 
-    public init(session: Session, inbox: InboxCredentials?) {
+    public init(session: Session, inbox: InboxCredentials?, transcript: String? = nil) {
         self.session = session
         self.inbox = inbox
+        self.transcript = transcript
     }
 }

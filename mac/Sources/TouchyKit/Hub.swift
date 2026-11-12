@@ -18,6 +18,9 @@ public actor Hub {
     public private(set) var usage: Usage?
     /// Latest cumulative cost per session, summed into `usage.totalCostUSD`.
     private var costBySession: [String: Double] = [:]
+    /// Where each session's transcript is. Like the inbox credentials, it
+    /// never goes to the phone.
+    private var transcripts: [String: String] = [:]
     /// Claude's task list per session, as far as its calls were seen.
     private var boards: [String: TaskBoard] = [:]
     /// When each session's running token count was last read, by the
@@ -54,15 +57,35 @@ public actor Hub {
     /// a registry with nothing but its own session in it: the whole one is
     /// written back.
     public func restore(_ saved: [StoredSession]) {
-        for entry in saved where sessions[entry.session.id] == nil {
-            sessions[entry.session.id] = entry.session
-            inbox[entry.session.id] = entry.inbox
+        for entry in saved {
+            let id = entry.session.id
+            guard var live = sessions[id] else {
+                sessions[id] = entry.session
+                inbox[id] = entry.inbox
+                transcripts[id] = entry.transcript
+                continue
+            }
+            // An event beat the restore and made the session from scratch:
+            // it still goes by the name, and shows the round, it had.
+            if live.title == (live.cwd as NSString).lastPathComponent { live.title = entry.session.title }
+            if live.round == nil { live.round = entry.session.round }
+            if live != sessions[id] {
+                sessions[id] = live
+                onChange(.session(live))
+            }
         }
         if !saved.isEmpty { save() }
     }
 
+    /// The transcript file of a session, when a hook event has named it.
+    public func transcript(of sessionId: String) -> String? {
+        transcripts[sessionId]
+    }
+
     private func save() {
-        persist?(sessions.values.map { StoredSession(session: $0, inbox: inbox[$0.id]) })
+        persist?(sessions.values.map {
+            StoredSession(session: $0, inbox: inbox[$0.id], transcript: transcripts[$0.id])
+        })
     }
 
     /// Handles one hook envelope and returns the line the hook prints.
@@ -86,15 +109,17 @@ public actor Hub {
         if let session = sessions[sessionId] {
             // Every event carries the inbox credentials: a daemon restarted
             // mid-session never sees that session's SessionStart again.
-            let known = inbox[sessionId]
+            let known = inbox[sessionId], knownTranscript = transcripts[sessionId]
             if let seen = envelope.inbox { inbox[sessionId] = seen }
+            if let path = envelope.event["transcript_path"]?.stringValue { transcripts[sessionId] = path }
             // Many events change nothing the phone shows.
             let visible = before.map { !session.looksTheSame(as: $0) } ?? true
             if visible { onChange(.session(session)) }
             let worthKeeping = before.map { !session.isWorthKeepingTheSame(as: $0) } ?? true
-            if worthKeeping || inbox[sessionId] != known { save() }
+            if worthKeeping || inbox[sessionId] != known || transcripts[sessionId] != knownTranscript { save() }
         } else if existed {
             inbox[sessionId] = nil
+            transcripts[sessionId] = nil
             boards[sessionId] = nil
             countedAt[sessionId] = nil
             onChange(.sessionRemoved(id: sessionId))
@@ -148,6 +173,7 @@ public actor Hub {
         for (id, credentials) in inbox where !isAlive(credentials) {
             sessions[id] = nil
             inbox[id] = nil
+            transcripts[id] = nil
             boards[id] = nil
             countedAt[id] = nil
             await pending.cancelAll(sessionId: id, by: .terminal)

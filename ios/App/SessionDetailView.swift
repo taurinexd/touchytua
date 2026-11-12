@@ -26,6 +26,8 @@ struct SessionDetailView: View {
         .background(Theme.background)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.background, for: .navigationBar)
+        // The earlier conversation is kept only while it is being read.
+        .onDisappear { connection.forgetEarlier(sessionId: sessionId) }
     }
 
     private func content(_ session: Session) -> some View {
@@ -37,6 +39,9 @@ struct SessionDetailView: View {
                         .font(Theme.display(20, .bold))
                         .foregroundStyle(Theme.text)
                         .lineLimit(2)
+                    EarlierView(page: connection.earlier.page(of: session.id)) {
+                        Task { await connection.loadEarlier(sessionId: session.id) }
+                    }
                     ForEach(connection.state.requests(for: session.id)) { request in
                         if request.kind == .question, !request.questions.isEmpty {
                             QuestionCard(request: request, answering: $answering)
@@ -194,5 +199,67 @@ struct SentPromptsView: View {
             }
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// The conversation before the round on screen, loaded a page at a time
+/// when asked for: prompts, replies, and a line for the tools in between.
+struct EarlierView: View {
+    let page: Earlier.Page
+    let load: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if page.isUnavailable {
+                note("History isn't available for this session.")
+            } else if page.isLoading {
+                HStack(spacing: 8) {
+                    ProgressView().tint(Theme.textTertiary)
+                    note("Loading…")
+                }
+            } else if page.canLoadMore {
+                Button(action: load) {
+                    Label("Earlier messages", systemImage: "chevron.up")
+                        .font(Theme.display(14, .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .overlay { Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1) }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            } else {
+                note(page.items.isEmpty ? "Nothing came before this." : "This is where the conversation began.")
+            }
+            if !page.items.isEmpty {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(page.items) { item in
+                        switch item.kind {
+                        case .prompt:
+                            Text(item.text)
+                                .font(Theme.display(16, .bold))
+                                .foregroundStyle(Theme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 6)
+                        case .reply:
+                            MarkdownView(text: item.text)
+                                .opacity(0.72)
+                        case .tools:
+                            note(item.text)
+                        }
+                    }
+                }
+                Rectangle()
+                    .fill(Theme.border)
+                    .frame(height: 1)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.body(13))
+            .foregroundStyle(Theme.textTertiary)
     }
 }

@@ -49,6 +49,12 @@ public struct PhoneRouter: Sendable {
             } catch {
                 return [.error(code: "inject_failed")]
             }
+        case let .history(sessionId, before):
+            // The first page stops where the round on screen begins.
+            guard let session = await hub.sessions[sessionId], let path = await hub.transcript(of: sessionId),
+                  let page = TranscriptHistory.page(path: path, before: before, roundStart: session.round?.startedAt)
+            else { return [.error(code: "history_unavailable")] }
+            return [.history(sessionId: sessionId, items: page.items, next: page.next)]
         }
     }
 }

@@ -116,8 +116,10 @@ struct RoundView: View {
                 Text("This Round")
                     .font(Theme.display(15, .bold))
                     .foregroundStyle(Theme.green)
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    Text(round.caption(now: timeline.date, waiting: waiting, answerable: answerable))
+                // While the round runs, the time is on the line that says
+                // what the session is doing.
+                if !running {
+                    Text(round.caption(now: .now, waiting: waiting, answerable: answerable))
                         .font(Theme.body(14))
                         .foregroundStyle(Theme.textTertiary)
                         .monospacedDigit()
@@ -132,12 +134,33 @@ struct RoundView: View {
             }
             if let summary = round.summary, !summary.isEmpty {
                 MarkdownView(text: summary)
-            } else if round.endedAt == nil, !waiting {
-                Text("Working…")
-                    .font(Theme.body(16))
-                    .foregroundStyle(Theme.textSecondary)
+            } else if running {
+                ActivityLine(round: round)
             }
         }
+    }
+
+    private var running: Bool { round.endedAt == nil && !waiting }
+}
+
+/// "✻ Writing the draft… (1m19s · ↓ 4k token)": what the session is doing
+/// right now, as Claude Code shows it in the terminal.
+struct ActivityLine: View {
+    let round: Round
+    private static let frames = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.12)) { timeline in
+            let frame = Int(timeline.date.timeIntervalSinceReferenceDate / 0.12) % Self.frames.count
+            (Text(Self.frames[frame] + " ").foregroundStyle(Theme.blue)
+                + Text(round.doing).foregroundStyle(Theme.text)
+                + Text("  (" + round.progress(now: timeline.date) + ")").foregroundStyle(Theme.textTertiary))
+                .font(Theme.body(16))
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(round.doing)
     }
 }
 

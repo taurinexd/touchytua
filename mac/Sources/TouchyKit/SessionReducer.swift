@@ -102,6 +102,7 @@ public enum SessionReducer {
             session.state = name == "Stop" ? .done : .error
             var round = session.round ?? Round(startedAt: at)
             round.endedAt = at
+            round.activity = nil
             if let summary = envelope.event["last_assistant_message"]?.stringValue {
                 // The prefix is for Claude: when a reply quotes a phone
                 // prompt, the phone shows the words without it.

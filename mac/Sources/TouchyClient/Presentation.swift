@@ -60,6 +60,21 @@ extension Round {
     }
 }
 
+extension Round {
+    /// What the session is doing while the round runs: "Writing the draft…".
+    public var doing: String {
+        let text = activity?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if text.isEmpty { return "Working…" }
+        return text.hasSuffix("…") ? text : text + "…"
+    }
+
+    /// How long the round has run and what it has written so far: "1m19s · ↓ 4k token".
+    public func progress(now: Date) -> String {
+        let time = Format.duration(now.timeIntervalSince(startedAt))
+        return tokens.map { time + " · ↓ " + Format.tokens($0) } ?? time
+    }
+}
+
 /// One question of an `AskUserQuestion` request.
 public struct Question: Equatable, Sendable {
     public struct Option: Equatable, Sendable {

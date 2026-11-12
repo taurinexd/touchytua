@@ -30,16 +30,17 @@ final class SystemSpeechEngine: SpeechEngine, @unchecked Sendable {
 
     /// The system's own matching of a locale to one it can transcribe.
     static func supportedLocale(equivalentTo locale: Locale) async -> Locale? {
-        if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) { return match }
-        guard SpeechTranscriber.isAvailable else { return nil }
-        return await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+        if SpeechTranscriber.isAvailable, let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            return match
+        }
+        return await DictationTranscriber.supportedLocale(equivalentTo: locale)
     }
 
     /// Every language this phone can transcribe.
     static func supportedLocales() async -> [Locale] {
         var seen = Set<String>()
         let general = SpeechTranscriber.isAvailable ? await SpeechTranscriber.supportedLocales : []
-        return ((await DictationTranscriber.supportedLocales) + general)
+        return (general + (await DictationTranscriber.supportedLocales))
             .filter { seen.insert($0.identifier(.bcp47)).inserted }
     }
 }
@@ -60,19 +61,18 @@ private actor Run {
     func go(locale: Locale, hints: [String]) async {
         do {
             guard await AVAudioApplication.requestRecordPermission() else { throw SpeechProblem.microphoneDenied }
-            // The system dictation model first: it is the one that can be
-            // told which words to expect, and prompts are full of names
-            // and coding terms. The general model covers the languages
-            // dictation doesn't have.
-            if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+            // The general-purpose model where the phone has it, as Apple
+            // advises; the system dictation model on older devices and for
+            // the other languages. Only the dictation model can be told
+            // which words to expect.
+            if SpeechTranscriber.isAvailable, let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+                let module = SpeechTranscriber(locale: match, preset: .progressiveTranscription)
+                try await transcribe(with: module, locale: match, hints: []) { $0.text }
+            } else if let match = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
                 let module = DictationTranscriber(
                     locale: match, contentHints: [.shortForm], transcriptionOptions: [.punctuation],
                     reportingOptions: [.volatileResults, .frequentFinalization], attributeOptions: [])
                 try await transcribe(with: module, locale: match, hints: hints) { $0.text }
-            } else if SpeechTranscriber.isAvailable,
-                      let match = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
-                let module = SpeechTranscriber(locale: match, preset: .progressiveTranscription)
-                try await transcribe(with: module, locale: match, hints: []) { $0.text }
             } else {
                 throw SpeechProblem.unsupportedLanguage
             }

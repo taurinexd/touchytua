@@ -33,6 +33,9 @@ final class PhoneServer: @unchecked Sendable {
         var off: Int32 = 0, on: Int32 = 1
         setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &off, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, socklen_t(MemoryLayout<Int32>.size))
+        // Inherited by every accepted socket: a phone that left before it
+        // was accepted cannot be given the option any more.
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_in6()
         address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
         address.sin6_family = sa_family_t(AF_INET6)
@@ -79,8 +82,6 @@ final class PhoneServer: @unchecked Sendable {
             // One phone is paired: a handful of connections covers it
             // reconnecting while old ones wind down.
             guard limit.admit() else { close(fd); continue }
-            var on: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
             Self.setReadTimeout(fd, seconds: greetingSeconds)
             Thread.detachNewThread { [self] in
                 serve(fd)

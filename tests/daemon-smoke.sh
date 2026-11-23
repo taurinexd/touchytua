@@ -44,6 +44,15 @@ echo '{"hook_event_name":"PostToolUse","session_id":"live","cwd":"/p/live","tool
   CLAUDE_CODE_MESSAGING_SOCKET="$HOME_T/live.sock" CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$HOME_T/run/hook.sock" "$H" >/dev/null 2>&1
 sleep 0.5
 kill -0 $PID 2>/dev/null && echo "PASS daemon alive after answering a hook that left" || { echo "FAIL daemon died answering a hook that left: $(tail -2 "$HOME_T/log")"; fail=1; }
+# A hook that is gone before the daemon has even accepted it: the option
+# that silences SIGPIPE cannot be set on a socket whose peer already left,
+# so it has to be there from the start. The daemon is held still while the
+# hook comes and goes.
+kill -STOP $PID
+perl -MIO::Socket::UNIX -e '$s = IO::Socket::UNIX->new(Peer => $ARGV[0]) or exit 1; print $s $ARGV[1]; close $s' \
+  "$HOME_T/run/hook.sock" '{"v":1,"capturedAt":0,"event":{"hook_event_name":"PostToolUse","session_id":"live","cwd":"/p/live","tool_name":"Bash","tool_input":{"command":"ls"}}}'
+kill -CONT $PID; sleep 0.5
+kill -0 $PID 2>/dev/null && echo "PASS daemon alive after answering a hook that left before being accepted" || { echo "FAIL daemon died answering a hook that left before being accepted: $(tail -2 "$HOME_T/log")"; fail=1; }
 # Restart: the registry comes back from disk.
 kill $PID; wait $PID 2>/dev/null
 rm -f "$HOME_T/folders.json"

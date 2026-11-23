@@ -41,7 +41,7 @@ public struct ClientState: Equatable, Sendable {
             pending.removeAll { $0.id == id }
         case let .usage(usage):
             self.usage = usage
-        case .error, .history, .unknown:
+        case .error, .history, .folders, .unknown:
             return
         }
         sessions.sort {

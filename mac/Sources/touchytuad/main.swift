@@ -24,10 +24,14 @@ _ = "\(getpid())\n".withCString { write(lockFD, $0, strlen($0)) }
 final class ChangeRelay: @unchecked Sendable {
     var phone: PhoneServer?
 
+    var desk: LaunchDesk?
+
     func forward(_ change: Hub.Change) {
         switch change {
         case let .session(s):
             Log.info("session \(s.id.prefix(8)) \(s.state.rawValue) \"\(s.title.prefix(40))\"")
+            // Where a session ran, another can be started from the phone.
+            desk?.note(cwd: s.cwd)
         case let .sessionRemoved(id):
             Log.info("session \(id.prefix(8)) removed")
         case let .pending(.opened(r)):
@@ -48,7 +52,41 @@ let sessionStore = SessionStore(path: runDir + "/sessions.json")
 let savedSessions = sessionStore.load()
 let hub = Hub(onChange: { relay.forward($0) }, persist: { sessionStore.save($0) })
 let store = PairingStore(directory: home)
-let router = PhoneRouter(hub: hub) { inbox, text in try InboxInjector.inject(text: text, into: inbox) }
+// Sessions started from the phone: `claude --bg` in a folder from the list,
+// with the daemon's own environment. It hands the session to Claude Code's
+// background supervisor and returns.
+let desk = LaunchDesk(
+    path: home + "/" + SessionLaunch.foldersFile,
+    exists: { path in
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    },
+    spawn: { request in
+        let candidates = [env["TOUCHYTUA_CLAUDE"]].compactMap { $0 }
+            + SessionLaunch.claudeCandidates(stateDirectory: home, userHome: NSHomeDirectory())
+        guard let claude = SessionLaunch.claudePath(
+            candidates: candidates, isExecutable: { FileManager.default.isExecutableFile(atPath: $0) })
+        else {
+            Log.info("start refused: claude not found")
+            throw SessionLaunch.Refusal.failed
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: claude)
+        process.arguments = SessionLaunch.arguments(for: request)
+        process.currentDirectoryURL = URL(fileURLWithPath: request.folder)
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        process.terminationHandler = { finished in
+            if finished.terminationStatus != 0 { Log.info("claude --bg exited with status \(finished.terminationStatus)") }
+        }
+        try process.run()
+        Log.info("session started from the phone in \((request.folder as NSString).lastPathComponent)")
+    })
+relay.desk = desk
+let router = PhoneRouter(
+    hub: hub, inject: { inbox, text in try InboxInjector.inject(text: text, into: inbox) },
+    folders: { desk.folders() }, start: { desk.start(folder: $0, prompt: $1, name: $2) })
 let phoneServer = PhoneServer(store: store, router: router, macName: Host.current().localizedName ?? "Mac")
 relay.phone = phoneServer
 

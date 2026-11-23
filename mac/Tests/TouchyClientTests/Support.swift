@@ -44,13 +44,18 @@ struct FakeMac {
     var knownPhoneKey: Data?
     /// The connection dies before the Mac answers the hello.
     var dropsHandshake = false
+    /// Where this Mac starts sessions from; without one, starting is off.
+    var desk: LaunchDesk?
 
     var publicKey: Data { macStatic.publicKey.rawRepresentation }
 
     /// Serves one connection until the transport closes.
     func serve(_ transport: MemoryTransport) {
-        let router = PhoneRouter(hub: hub) { _, _ in }
         let mac = self
+        let router = mac.desk.map { desk in
+            PhoneRouter(hub: hub, inject: { _, _ in }, folders: { desk.folders() },
+                        start: { desk.start(folder: $0, prompt: $1, name: $2) })
+        } ?? PhoneRouter(hub: hub) { _, _ in }
         Task {
             guard let hello = try? await transport.receive(), !mac.dropsHandshake else {
                 transport.close()

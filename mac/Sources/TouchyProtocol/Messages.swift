@@ -22,10 +22,16 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
     /// The messages of a session that come before `before`, a cursor from
     /// an earlier page; without one, before the round the phone shows.
     case history(sessionId: String, before: String?)
+    /// Asks where a session can be started.
+    case folders
+    /// Starts a session in one of those folders, with its first prompt.
+    case start(folder: String, prompt: String, name: String?)
     /// A type this build does not know (a newer app): ignored, never fatal.
     case unknown(String)
 
-    private enum Keys: String, CodingKey { case t, deviceName, requestId, allow, message, answers, sessionId, text, before }
+    private enum Keys: String, CodingKey {
+        case t, deviceName, requestId, allow, message, answers, sessionId, text, before, folder, prompt, name
+    }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -40,6 +46,10 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
                                       text: try c.decode(String.self, forKey: .text))
         case "history": self = .history(sessionId: try c.decode(String.self, forKey: .sessionId),
                                         before: try c.decodeIfPresent(String.self, forKey: .before))
+        case "folders": self = .folders
+        case "start": self = .start(folder: try c.decode(String.self, forKey: .folder),
+                                    prompt: try c.decode(String.self, forKey: .prompt),
+                                    name: try c.decodeIfPresent(String.self, forKey: .name))
         case let t: self = .unknown(t)
         }
     }
@@ -60,6 +70,11 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
         case let .history(sid, before):
             try c.encode("history", forKey: .t); try c.encode(sid, forKey: .sessionId)
             try c.encodeIfPresent(before, forKey: .before)
+        case .folders:
+            try c.encode("folders", forKey: .t)
+        case let .start(folder, prompt, name):
+            try c.encode("start", forKey: .t); try c.encode(folder, forKey: .folder)
+            try c.encode(prompt, forKey: .prompt); try c.encodeIfPresent(name, forKey: .name)
         }
     }
 }
@@ -76,11 +91,14 @@ public enum MacToPhone: Codable, Equatable, Sendable {
     /// A page of a session's earlier conversation, oldest first. `next` is
     /// the cursor for the page before it; nil at the start.
     case history(sessionId: String, items: [HistoryItem], next: String?)
+    /// Where a session can be started; `enabled` is false when starting
+    /// from the phone is switched off on the Mac.
+    case folders(items: [StartFolder], enabled: Bool)
     /// A type this build does not know (a newer plugin): ignored, never fatal.
     case unknown(String)
 
     private enum Keys: String, CodingKey {
-        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next
+        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next, folders, enabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -99,6 +117,8 @@ public enum MacToPhone: Codable, Equatable, Sendable {
         case "history": self = .history(sessionId: try c.decode(String.self, forKey: .sessionId),
                                         items: try c.decode([HistoryItem].self, forKey: .items),
                                         next: try c.decodeIfPresent(String.self, forKey: .next))
+        case "folders": self = .folders(items: try c.decode([StartFolder].self, forKey: .folders),
+                                        enabled: try c.decode(Bool.self, forKey: .enabled))
         case let t: self = .unknown(t)
         }
     }
@@ -120,6 +140,8 @@ public enum MacToPhone: Codable, Equatable, Sendable {
         case let .history(sid, items, next):
             try c.encode("history", forKey: .t); try c.encode(sid, forKey: .sessionId)
             try c.encode(items, forKey: .items); try c.encodeIfPresent(next, forKey: .next)
+        case let .folders(items, enabled):
+            try c.encode("folders", forKey: .t); try c.encode(items, forKey: .folders); try c.encode(enabled, forKey: .enabled)
         }
     }
 }

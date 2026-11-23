@@ -427,6 +427,54 @@ actor Gate {
         #expect(await eventually { manager.earlier.page(of: "s1").isUnavailable })
     }
 
+    private final class Spawned: @unchecked Sendable {
+        private let lock = NSLock()
+        private var all: [SessionLaunch.Request] = []
+        var requests: [SessionLaunch.Request] { lock.withLock { all } }
+        func add(_ request: SessionLaunch.Request) { lock.withLock { all.append(request) } }
+    }
+
+    private func desk(_ spawned: Spawned) -> LaunchDesk {
+        let desk = LaunchDesk(path: NSTemporaryDirectory() + "tt-desk-" + UUID().uuidString + ".json",
+                              exists: { _ in true }) { spawned.add($0) }
+        desk.note(cwd: "/p/shop")
+        return desk
+    }
+
+    @Test func aSessionIsStartedOnTheMacFromThePhone() async {
+        let spawned = Spawned()
+        var mac = pairedMac(endpoints: [lan])
+        mac.desk = desk(spawned)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { if case .connected = manager.status { true } else { false } })
+
+        await manager.loadFolders()
+        #expect(await eventually { manager.launcher.folders.map(\.path) == ["/p/shop"] })
+
+        await manager.startSession(folder: "/p/shop", prompt: "Fix the cart", name: "cart")
+        #expect(await eventually { spawned.requests == [.init(folder: "/p/shop", prompt: "Fix the cart", name: "cart")] })
+        #expect(manager.launcher.problem == nil)
+    }
+
+    @Test func aStartTheMacRefusesIsExplained() async {
+        let spawned = Spawned()
+        var mac = pairedMac(endpoints: [lan])
+        mac.desk = desk(spawned)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { if case .connected = manager.status { true } else { false } })
+
+        await manager.startSession(folder: "/somewhere/else", prompt: "Fix the cart", name: nil)
+
+        #expect(await eventually { manager.launcher.problem == "That folder isn't available any more." })
+        #expect(spawned.requests.isEmpty)
+    }
+
     // MARK: lifecycle
 
     @Test func stopHangsUpAndStartComesBack() async {

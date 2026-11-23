@@ -18,7 +18,9 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
                               .decide(requestId: "abcd1234", allow: false, message: "no"),
                               .answer(requestId: "abcd1234", answers: ["Quale?": "B"]),
                               .prompt(sessionId: "s1", text: "ciao"),
-                              .history(sessionId: "s1", before: nil), .history(sessionId: "s1", before: "4096")] {
+                              .history(sessionId: "s1", before: nil), .history(sessionId: "s1", before: "4096"),
+                              .folders, .start(folder: "/p/shop", prompt: "Fix the cart", name: nil),
+                              .start(folder: "/p/shop", prompt: "Fix the cart", name: "cart")] {
             #expect(try roundTrip(m) == m)
         }
     }
@@ -32,7 +34,9 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
                                   HistoryItem(id: "u1", kind: .prompt, text: "Fix the cart", at: Date(timeIntervalSince1970: 5)),
                                   HistoryItem(id: "t1", kind: .tools, text: "Bash · 1 tool call", at: Date(timeIntervalSince1970: 6)),
                               ], next: "128"),
-                              .history(sessionId: "s1", items: [], next: nil)] {
+                              .history(sessionId: "s1", items: [], next: nil),
+                              .folders(items: [StartFolder(path: "/p/shop", name: "shop")], enabled: true),
+                              .folders(items: [], enabled: false)] {
             #expect(try roundTrip(m) == m)
         }
     }
@@ -132,6 +136,40 @@ private final class Injected: @unchecked Sendable {
         let router = PhoneRouter(hub: hub) { _, _ in }
         #expect(await router.handle(.history(sessionId: "s1", before: nil)) == [.error(code: "history_unavailable")])
         #expect(await router.handle(.history(sessionId: "nope", before: nil)) == [.error(code: "history_unavailable")])
+    }
+
+    private final class Started: @unchecked Sendable {
+        var calls: [(String, String, String?)] = []
+    }
+
+    @Test func thePhoneIsToldWhereItCanStartASession() async {
+        let router = PhoneRouter(
+            hub: Hub(), inject: { _, _ in },
+            folders: { ([StartFolder(path: "/p/shop", name: "shop")], true) }, start: { _, _, _ in nil })
+        #expect(await router.handle(.folders) == [.folders(items: [StartFolder(path: "/p/shop", name: "shop")], enabled: true)])
+    }
+
+    @Test func startingASessionGoesToTheMac() async {
+        let started = Started()
+        let router = PhoneRouter(hub: Hub(), inject: { _, _ in }, folders: { ([], true) }) { folder, prompt, name in
+            started.calls.append((folder, prompt, name))
+            return nil
+        }
+        #expect(await router.handle(.start(folder: "/p/shop", prompt: "Fix the cart", name: "cart")).isEmpty)
+        #expect(started.calls.count == 1)
+        #expect(started.calls.first?.0 == "/p/shop")
+    }
+
+    @Test func aStartTheMacRefusesIsReportedWithItsReason() async {
+        let router = PhoneRouter(hub: Hub(), inject: { _, _ in }, folders: { ([], true) }) { _, _, _ in .unknownFolder }
+        #expect(await router.handle(.start(folder: "/etc", prompt: "x", name: nil)) == [.error(code: "start_unknown_folder")])
+    }
+
+    /// A daemon built without a launch desk (the tests, mostly) starts nothing.
+    @Test func withoutALaunchDeskStartingIsOff() async {
+        let router = PhoneRouter(hub: Hub()) { _, _ in }
+        #expect(await router.handle(.folders) == [.folders(items: [], enabled: false)])
+        #expect(await router.handle(.start(folder: "/p/shop", prompt: "x", name: nil)) == [.error(code: "start_disabled")])
     }
 
     @Test func promptToSessionWithoutInboxFails() async {

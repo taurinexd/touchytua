@@ -9,6 +9,9 @@ import TouchyKit
 //   touchytua doctor                  conflicts, daemon and pairing status
 //   touchytua daemon --ensure         start the daemon if it is not running
 //   touchytua statusline install|uninstall
+//   touchytua folders [add <path> | remove <path>]
+//                                     where the phone may start a session
+//   touchytua phone-start on|off      whether it may start sessions at all
 
 let env = ProcessInfo.processInfo.environment
 let home = env["TOUCHYTUA_HOME"] ?? (NSHomeDirectory() + "/.touchytua")
@@ -99,7 +102,18 @@ func announceRestart() {
     FileManager.default.createFile(atPath: runDir + "/" + Setup.restartMarkerName, contents: nil)
 }
 
+/// The daemon starts sessions for the phone but has no PATH to speak of:
+/// leave it the path of `claude` while it is at hand.
+func rememberClaude() {
+    let found = (env["PATH"] ?? "").split(separator: ":").map { String($0) + "/claude" }
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+    guard let found else { return }
+    try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
+    try? found.write(toFile: home + "/" + SessionLaunch.claudePathFile, atomically: true, encoding: .utf8)
+}
+
 func ensureDaemon() {
+    rememberClaude()
     let changed = installBinaries()
     if FileManager.default.fileExists(atPath: plistPath) {
         if changed {
@@ -193,9 +207,48 @@ func doctor() {
        inbound != "accept" {
         say("Warning: crossSessionInbound=\(inbound) in Claude Code's settings. Prompts sent from the phone are \(inbound == "refuse" ? "discarded" : "held back").")
     }
+    let book = FolderBook.load(from: foldersPath)
+    say("Start sessions from the phone: \(book.enabled ? "on, \(book.folders.count) folders (touchytua folders)" : "off")")
     let previous = StatusLineChain.previousCommand(stateDirectory: home)
     say("Chained status line: \(FileManager.default.fileExists(atPath: home + "/statusline-previous.json") ? "installed\(previous.map { " (previous: \($0))" } ?? "")" : "not installed")")
     printConflicts()
+}
+
+let foldersPath = home + "/" + SessionLaunch.foldersFile
+
+func folders(_ arguments: [String]) throws {
+    var book = FolderBook.load(from: foldersPath)
+    switch (arguments.first, arguments.dropFirst().first) {
+    case (nil, _):
+        say("Sessions can be started from the phone: \(book.enabled ? "yes" : "no (touchytua phone-start on)")")
+        if book.folders.isEmpty { say("No folders yet: one is added each time a session runs, or with `touchytua folders add <path>`.") }
+        for folder in book.folders { say("  \(folder.path)") }
+    case let ("add", path?):
+        let full = URL(fileURLWithPath: path).standardizedFileURL.path
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: full, isDirectory: &isDirectory), isDirectory.boolValue else {
+            say("Not a folder: \(full)"); exit(2)
+        }
+        book.add(full)
+        guard book.allows(full) else { say("That folder can't be used: \(full)"); exit(2) }
+        try book.save(to: foldersPath)
+        say("Added: \(full)")
+    case let ("remove", path?):
+        book.remove(URL(fileURLWithPath: path).standardizedFileURL.path)
+        try book.save(to: foldersPath)
+        say("Removed. It won't be offered again until you add it back.")
+    default:
+        say("usage: touchytua folders [add <path> | remove <path>]"); exit(2)
+    }
+}
+
+func phoneStart(_ action: String) throws {
+    guard action == "on" || action == "off" else { say("usage: touchytua phone-start on|off"); exit(2) }
+    var book = FolderBook.load(from: foldersPath)
+    book.enabled = action == "on"
+    try book.save(to: foldersPath)
+    say(book.enabled ? "The phone can start sessions in the folders listed by `touchytua folders`."
+                     : "The phone can no longer start sessions.")
 }
 
 func statusLine(_ action: String) throws {
@@ -220,8 +273,11 @@ do {
     case "doctor": doctor()
     case "daemon" where args.contains("--ensure"): ensureDaemon()
     case "statusline": try statusLine(args.dropFirst().first ?? "")
+    case "folders": try folders(Array(args.dropFirst()))
+    case "phone-start": try phoneStart(args.dropFirst().first ?? "")
     default:
-        say("usage: touchytua pair [--no-open] [--terminal] | doctor | daemon --ensure | statusline install|uninstall")
+        say("usage: touchytua pair [--no-open] [--terminal] | doctor | daemon --ensure | statusline install|uninstall"
+            + " | folders [add <path> | remove <path>] | phone-start on|off")
         exit(2)
     }
 } catch {

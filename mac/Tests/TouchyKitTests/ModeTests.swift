@@ -133,16 +133,39 @@ import Testing
         #expect(json(await hub.handle(event("PreToolUse", at: 10, tool: "Bash"))) == "{}\n")
     }
 
-    /// Whatever the mode, choosing the one the session is in takes back a
-    /// choice that has not gone in yet.
+    /// Choosing the mode the session is in takes back a choice that has
+    /// not gone in yet.
     @Test func choosingTheCurrentModeCancelsAChangeOnItsWay() async {
         let hub = Hub()
-        _ = await hub.handle(event("UserPromptSubmit", at: 1, mode: "dontAsk"))
+        _ = await hub.handle(event("UserPromptSubmit", at: 1, mode: "acceptEdits"))
         _ = await hub.setMode(sessionId: "s1", mode: "auto")
         #expect(await hub.sessions["s1"]?.nextMode == "auto")
-        #expect(await hub.setMode(sessionId: "s1", mode: "dontAsk"))
+        #expect(await hub.setMode(sessionId: "s1", mode: "acceptEdits"))
         #expect(await hub.sessions["s1"]?.nextMode == nil)
-        #expect(json(await hub.handle(event("PreToolUse", at: 2, mode: "dontAsk", tool: "Bash"))) == "{}\n")
+        #expect(json(await hub.handle(event("PreToolUse", at: 2, mode: "acceptEdits", tool: "Bash"))) == "{}\n")
+    }
+
+    /// A session in bypass never asks for permission, even when a hook
+    /// tells it to: there is no request for the mode to travel with. The
+    /// phone is told, instead of being left with a change that never comes.
+    @Test func aSessionThatNeverAsksCannotChangeModeFromThePhone() async {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: 1, mode: "bypassPermissions"))
+        let router = PhoneRouter(hub: hub) { _, _ in }
+        #expect(await router.handle(.mode(sessionId: "s1", mode: "plan")) == [.error(code: "mode_needs_mac")])
+        #expect(await hub.sessions["s1"]?.nextMode == nil)
+        #expect(json(await hub.handle(event("PreToolUse", at: 2, mode: "bypassPermissions", tool: "Bash"))) == "{}\n")
+        // Choosing the mode it is in is still fine.
+        #expect(await router.handle(.mode(sessionId: "s1", mode: "bypassPermissions")).isEmpty)
+    }
+
+    /// The terminal moved the session into bypass while a change waited.
+    @Test func aChangeWaitingIsDroppedWhenTheSessionStopsAsking() async {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: 1))
+        _ = await hub.setMode(sessionId: "s1", mode: "plan")
+        _ = await hub.handle(event("PreToolUse", at: 2, mode: "bypassPermissions", tool: "Bash"))
+        #expect(await hub.sessions["s1"]?.nextMode == nil)
     }
 
     @Test func thePhoneAsksForAModeThroughTheRouter() async {

@@ -93,6 +93,14 @@ extension Session {
         PermissionMode(wire: nextMode ?? mode)
     }
 
+    /// Why this session's mode cannot be changed from the phone, when it
+    /// cannot: a new mode travels with the answer to a permission request,
+    /// and in these modes the session never makes one.
+    public var modeLock: String? {
+        guard let mode, ["bypassPermissions", "dontAsk"].contains(mode) else { return nil }
+        return "This session never asks for permission, so its mode changes only on your Mac, with Shift+Tab."
+    }
+
     /// One line about a chosen mode Claude Code has not taken yet.
     public var modeNote: String? {
         guard let nextMode, nextMode != mode else { return nil }

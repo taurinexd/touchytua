@@ -37,10 +37,16 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
     public var state: SessionState
     public var round: Round?
     public var lastEventAt: Date
+    /// The permission mode Claude Code reports: "default", "acceptEdits",
+    /// "plan", "auto"… Nil until an event says.
+    public var mode: String?
+    /// The mode chosen on the phone that Claude Code has not taken yet: it
+    /// changes mode only in the answer to a permission request.
+    public var nextMode: String?
 
     public init(
         id: String, title: String, cwd: String, state: SessionState,
-        round: Round? = nil, lastEventAt: Date
+        round: Round? = nil, lastEventAt: Date, mode: String? = nil, nextMode: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -48,6 +54,8 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
         self.state = state
         self.round = round
         self.lastEventAt = lastEventAt
+        self.mode = mode
+        self.nextMode = nextMode
     }
 
     /// True when the two would be shown the same: everything except the

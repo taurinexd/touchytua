@@ -68,6 +68,8 @@ public struct PhoneRouter: Sendable {
         case .folders:
             let (items, enabled) = folders()
             return [.folders(items: items, enabled: enabled)]
+        case let .mode(sessionId, mode):
+            return await hub.setMode(sessionId: sessionId, mode: mode) ? [] : [.error(code: "mode_refused")]
         case let .start(folder, prompt, name):
             // The new session announces itself through its own hooks.
             return start(folder, prompt, name).map { [.error(code: $0.rawValue)] } ?? []

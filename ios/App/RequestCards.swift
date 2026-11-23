@@ -6,6 +6,8 @@ import TouchyProtocol
 struct PermissionCard: View {
     @Environment(ConnectionManager.self) private var connection
     let request: PendingRequest
+    /// Said when approving does more than let this one call through.
+    var modeNote: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -32,6 +34,11 @@ struct PermissionCard: View {
                 Text("Long input was shortened. The full text is on your Mac.")
                     .font(Theme.body(13))
                     .foregroundStyle(Theme.textTertiary)
+            }
+            if let modeNote {
+                Text(modeNote)
+                    .font(Theme.body(13))
+                    .foregroundStyle(Theme.textSecondary)
             }
             HStack(spacing: 10) {
                 Button("Deny") {

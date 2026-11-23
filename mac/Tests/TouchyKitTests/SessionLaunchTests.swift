@@ -114,13 +114,29 @@ import Testing
         #expect(check(name: " -- ") == .success(.init(folder: "/p/shop", prompt: "Fix the cart", name: nil)))
     }
 
-    /// The session asks for permissions, whatever the Mac's own default
-    /// is, and neither the name nor the prompt can pass for an option.
-    @Test func theCommandAsksForPermissionsAndTakesThePromptAsWords() {
+    /// The session starts in the mode any session on this Mac starts in:
+    /// the phone names none. Neither the name nor the prompt can pass for
+    /// an option.
+    @Test func theCommandNamesNoModeAndTakesThePromptAsWords() {
         let named = SessionLaunch.arguments(for: .init(folder: "/p/shop", prompt: "--version", name: "cart fix"))
-        #expect(named == ["--bg", "--permission-mode", "default", "--name=cart fix", "--", "--version"])
+        #expect(named == ["--bg", "--name=cart fix", "--", "--version"])
         let bare = SessionLaunch.arguments(for: .init(folder: "/p/shop", prompt: "Fix the cart", name: nil))
-        #expect(bare == ["--bg", "--permission-mode", "default", "--", "Fix the cart"])
+        #expect(bare == ["--bg", "--", "Fix the cart"])
+    }
+
+    /// Claude Code gives a background session the PATH of whoever started
+    /// it, and the daemon has next to none: tools like `npx`, which MCP
+    /// servers start with, would not be found.
+    @Test func theSessionGetsThePathOfTheLastTerminalSession() {
+        let environment = SessionLaunch.environment(
+            ["PATH": "/usr/bin:/bin", "HOME": "/Users/me"], rememberedPath: "/opt/homebrew/bin:/usr/bin:/Users/me/.local/bin\n")
+        #expect(environment["PATH"] == "/opt/homebrew/bin:/usr/bin:/Users/me/.local/bin:/bin")
+        #expect(environment["HOME"] == "/Users/me")
+    }
+
+    @Test func withoutARememberedPathTheDaemonsOwnIsUsed() {
+        #expect(SessionLaunch.environment(["PATH": "/usr/bin:/bin"], rememberedPath: nil)["PATH"] == "/usr/bin:/bin")
+        #expect(SessionLaunch.environment(["PATH": "/usr/bin"], rememberedPath: "  ")["PATH"] == "/usr/bin")
     }
 
     @Test func claudeIsLookedForWhereItIsInstalled() {

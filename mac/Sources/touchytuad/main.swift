@@ -74,6 +74,10 @@ let desk = LaunchDesk(
         process.executableURL = URL(fileURLWithPath: claude)
         process.arguments = SessionLaunch.arguments(for: request)
         process.currentDirectoryURL = URL(fileURLWithPath: request.folder)
+        // Claude Code hands a background session the PATH it was started
+        // with: without the terminal's, MCP servers and tools are not found.
+        process.environment = SessionLaunch.environment(
+            env, rememberedPath: try? String(contentsOfFile: home + "/" + SessionLaunch.pathFile, encoding: .utf8))
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice

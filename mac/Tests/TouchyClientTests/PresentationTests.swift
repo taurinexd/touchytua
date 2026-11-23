@@ -196,6 +196,38 @@ import TouchyProtocol
         #expect(MarkdownBlock.parse("PONG7") == [.paragraph("PONG7")])
     }
 
+    @Test func aTableIsReadAsHeaderAndRows() {
+        let text = """
+        Permissions:
+
+        | Entry | Value | Source |
+        |---|:--:|---|
+        | Mode | `auto` | `settings.json` |
+        | `deny` | none | — |
+
+        Done.
+        """
+        #expect(MarkdownBlock.parse(text) == [
+            .paragraph("Permissions:"),
+            .table(header: ["Entry", "Value", "Source"], rows: [["Mode", "`auto`", "`settings.json`"], ["`deny`", "none", "—"]]),
+            .paragraph("Done."),
+        ])
+    }
+
+    @Test func aTableNeedsNoOuterBarsAndKeepsEscapedOnes() {
+        let text = "Name | Command\n--- | ---\nlist | `a \\| b`\nshort"
+        #expect(MarkdownBlock.parse(text) == [
+            .table(header: ["Name", "Command"], rows: [["list", "`a | b`"]]),
+            .paragraph("short"),
+        ])
+        #expect(MarkdownBlock.parse("a | b\n--- | ---\n1\\|2 |") == [.table(header: ["a", "b"], rows: [["1|2", ""]])])
+    }
+
+    @Test func aLineWithBarsButNoRuleUnderItIsText() {
+        #expect(MarkdownBlock.parse("a | b\nc | d") == [.paragraph("a | b\nc | d")])
+        #expect(MarkdownBlock.parse("| only |") == [.paragraph("| only |")])
+    }
+
     @Test func aCodeBlockLeftOpenRunsToTheEnd() {
         #expect(MarkdownBlock.parse("```\nls -la") == [.code("ls -la")])
     }

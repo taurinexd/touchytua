@@ -29,6 +29,22 @@ public actor Hub {
     /// How long a running token count stays as it is: the transcript is
     /// not read at every tool call.
     static let countEvery: Double = 5
+    /// A mode chosen on the phone, on its way into a session.
+    private struct ModeChange {
+        let mode: String
+        /// When a tool call was last made to ask for permission.
+        var askedAt: Double?
+        /// When the mode went out with an approval.
+        var sentAt: Double?
+    }
+
+    private var modeChanges: [String: ModeChange] = [:]
+    /// The modes of the Shift+Tab cycle. Not the ones that stop asking
+    /// altogether: those are chosen at the Mac.
+    public static let modes = ["default", "acceptEdits", "plan", "auto"]
+    /// How long after an approval the old mode may still be reported.
+    static let modeGrace: Double = 3
+    private let clock: @Sendable () -> Date
     public let pending: PendingRequests
     private let onChange: @Sendable (Change) -> Void
     private let persist: (@Sendable ([StoredSession]) -> Void)?
@@ -43,8 +59,10 @@ public actor Hub {
         onChange: @escaping @Sendable (Change) -> Void = { _ in },
         persist: (@Sendable ([StoredSession]) -> Void)? = nil,
         secondLooks: [Duration] = [.seconds(1), .seconds(4)],
-        pause: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        pause: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        clock: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.clock = clock
         self.onChange = onChange
         self.persist = persist
         self.secondLooks = secondLooks
@@ -61,6 +79,8 @@ public actor Hub {
             let id = entry.session.id
             guard var live = sessions[id] else {
                 sessions[id] = entry.session
+                // A mode on its way did not survive the restart.
+                sessions[id]?.nextMode = nil
                 inbox[id] = entry.inbox
                 transcripts[id] = entry.transcript
                 continue
@@ -106,6 +126,7 @@ public actor Hub {
         if name == "Stop" || name == "StopFailure" { enrichRound(sessionId, envelope) }
         if name == "UserPromptSubmit" || name == "PermissionRequest" { nameSession(sessionId, envelope) }
         follow(sessionId, name, envelope)
+        let forced = await followModeChange(sessionId, name, envelope)
         if let session = sessions[sessionId] {
             // Every event carries the inbox credentials: a daemon restarted
             // mid-session never sees that session's SessionStart again.
@@ -122,10 +143,12 @@ public actor Hub {
             transcripts[sessionId] = nil
             boards[sessionId] = nil
             countedAt[sessionId] = nil
+            modeChanges[sessionId] = nil
             onChange(.sessionRemoved(id: sessionId))
             save()
         }
 
+        if let forced { return forced }
         guard name == "PermissionRequest" else { return PendingRequests.emptyReply }
         let tool = envelope.event["tool_name"]?.stringValue ?? "unknown"
         let request = PendingRequest(
@@ -166,6 +189,63 @@ public actor Hub {
         sessions[id]?.round = round
     }
 
+    /// The phone chose a permission mode. Claude Code takes one from a
+    /// hook only in the answer to a permission request, so the change
+    /// waits for the session's next one. False when it cannot be chosen.
+    public func setMode(sessionId: String, mode: String) -> Bool {
+        guard var session = sessions[sessionId], Self.modes.contains(mode) else { return false }
+        if session.mode == mode {
+            modeChanges[sessionId] = nil
+            session.nextMode = nil
+        } else {
+            modeChanges[sessionId] = ModeChange(mode: mode)
+            session.nextMode = mode
+        }
+        if session != sessions[sessionId] {
+            sessions[sessionId] = session
+            onChange(.session(session))
+        }
+        return true
+    }
+
+    /// Carries a mode change forward with one hook event. Returns what the
+    /// hook must print when this tool call is the one made to ask for
+    /// permission.
+    private func followModeChange(_ id: String, _ name: String, _ envelope: HookEnvelope) async -> Data? {
+        guard var change = modeChanges[id], let session = sessions[id] else { return nil }
+        let at = envelope.capturedAt
+        let reported = envelope.event["permission_mode"]?.stringValue
+        // Done, or not taken: a mode this Mac does not have is asked for
+        // once, and must not make every later tool call ask.
+        let refused = change.sentAt.map { reported != nil && at - $0 > Self.modeGrace } ?? false
+        if session.mode == change.mode || refused {
+            modeChanges[id] = nil
+            sessions[id]?.nextMode = nil
+            return nil
+        }
+        guard name == "PreToolUse", change.sentAt == nil else { return nil }
+        // One request is enough: the calls beside this one are left alone,
+        // unless the request it made is gone and the mode still is not in.
+        let open = await pending.openRequests.contains { $0.sessionId == id }
+        if let asked = change.askedAt, open || at - asked < 1.5 { return nil }
+        change.askedAt = at
+        modeChanges[id] = change
+        return HookReply.askForPermission(reason: "touchytua: the phone asked for \(change.mode) mode")
+    }
+
+    /// The mode to send along with an approval, noting that it went.
+    private func modeToSend(_ sessionId: String, allow: Bool) -> String? {
+        guard var change = modeChanges[sessionId] else { return nil }
+        if allow {
+            change.sentAt = clock().timeIntervalSince1970
+        } else {
+            // Denied: the next tool call asks again.
+            change.askedAt = nil
+        }
+        modeChanges[sessionId] = change
+        return allow ? change.mode : nil
+    }
+
     /// Drops the sessions whose inbox `isAlive` rejects: those that ended without a
     /// SessionEnd (crash, kill, closed terminal). Their requests close too.
     /// A session without an inbox cannot be probed and is kept.
@@ -186,7 +266,8 @@ public actor Hub {
     public func decide(requestId: String, allow: Bool, message: String?) async -> Bool {
         guard let request = await pending.openRequests.first(where: { $0.id == requestId }) else { return false }
         let reply = HookReply.permission(
-            allow: allow, message: message, toolName: request.toolName, toolInput: request.toolInput)
+            allow: allow, message: message, toolName: request.toolName, toolInput: request.toolInput,
+            mode: modeToSend(request.sessionId, allow: allow))
         guard await pending.resolve(id: requestId, reply: reply) else { return false }
         await resume(request.sessionId)
         return true
@@ -209,7 +290,8 @@ public actor Hub {
     public func answer(requestId: String, answers: [String: String]) async -> Bool {
         guard let request = await pending.openRequests.first(where: { $0.id == requestId }),
               request.kind == .question else { return false }
-        let reply = HookReply.question(toolInput: request.toolInput, answers: answers)
+        let reply = HookReply.question(
+            toolInput: request.toolInput, answers: answers, mode: modeToSend(request.sessionId, allow: true))
         guard await pending.resolve(id: requestId, reply: reply) else { return false }
         await resume(request.sessionId)
         return true

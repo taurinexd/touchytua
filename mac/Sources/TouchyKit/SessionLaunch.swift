@@ -121,11 +121,12 @@ public enum SessionLaunch {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// The `claude` arguments. The session asks for permissions whatever
-    /// the Mac's default mode is; after `--` the prompt is words, however
+    /// The `claude` arguments. No permission mode is named: the session
+    /// starts in the one any session on this Mac starts in, and the phone
+    /// can change it afterwards. After `--` the prompt is words, however
     /// it begins.
     public static func arguments(for request: Request) -> [String] {
-        var arguments = ["--bg", "--permission-mode", "default"]
+        var arguments = ["--bg"]
         if let name = request.name { arguments.append("--name=" + name) }
         return arguments + ["--", request.prompt]
     }
@@ -143,6 +144,22 @@ public enum SessionLaunch {
         return [remembered, userHome + "/.local/bin/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
             .compactMap { $0 }.filter { !$0.isEmpty }
     }
+
+    /// The environment for `claude --bg`: the daemon's own, with the
+    /// PATH the command line remembered put first.
+    public static func environment(_ base: [String: String], rememberedPath: String?) -> [String: String] {
+        var environment = base
+        var seen = Set<String>()
+        let folders = ((rememberedPath ?? "") + ":" + (base["PATH"] ?? ""))
+            .split(whereSeparator: { $0 == ":" || $0.isNewline })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+        if !folders.isEmpty { environment["PATH"] = folders.joined(separator: ":") }
+        return environment
+    }
+
+    /// Holds the PATH of the last session that started the daemon.
+    public static let pathFile = "claude-env-path"
 
     /// Holds the path of `claude`, written by the command line, which
     /// runs where Claude Code is on the PATH; the daemon does not.

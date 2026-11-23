@@ -110,6 +110,8 @@ func rememberClaude() {
     guard let found else { return }
     try? FileManager.default.createDirectory(atPath: home, withIntermediateDirectories: true)
     try? found.write(toFile: home + "/" + SessionLaunch.claudePathFile, atomically: true, encoding: .utf8)
+    // And the PATH itself: the sessions the daemon starts get it.
+    try? (env["PATH"] ?? "").write(toFile: home + "/" + SessionLaunch.pathFile, atomically: true, encoding: .utf8)
 }
 
 func ensureDaemon() {

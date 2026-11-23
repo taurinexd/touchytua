@@ -26,11 +26,13 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
     case folders
     /// Starts a session in one of those folders, with its first prompt.
     case start(folder: String, prompt: String, name: String?)
+    /// Puts a session in another permission mode.
+    case mode(sessionId: String, mode: String)
     /// A type this build does not know (a newer app): ignored, never fatal.
     case unknown(String)
 
     private enum Keys: String, CodingKey {
-        case t, deviceName, requestId, allow, message, answers, sessionId, text, before, folder, prompt, name
+        case t, deviceName, requestId, allow, message, answers, sessionId, text, before, folder, prompt, name, mode
     }
 
     public init(from decoder: Decoder) throws {
@@ -50,6 +52,8 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
         case "start": self = .start(folder: try c.decode(String.self, forKey: .folder),
                                     prompt: try c.decode(String.self, forKey: .prompt),
                                     name: try c.decodeIfPresent(String.self, forKey: .name))
+        case "mode": self = .mode(sessionId: try c.decode(String.self, forKey: .sessionId),
+                                  mode: try c.decode(String.self, forKey: .mode))
         case let t: self = .unknown(t)
         }
     }
@@ -75,6 +79,8 @@ public enum PhoneToMac: Codable, Equatable, Sendable {
         case let .start(folder, prompt, name):
             try c.encode("start", forKey: .t); try c.encode(folder, forKey: .folder)
             try c.encode(prompt, forKey: .prompt); try c.encodeIfPresent(name, forKey: .name)
+        case let .mode(sid, mode):
+            try c.encode("mode", forKey: .t); try c.encode(sid, forKey: .sessionId); try c.encode(mode, forKey: .mode)
         }
     }
 }

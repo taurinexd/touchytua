@@ -191,6 +191,13 @@ public final class ConnectionManager {
         await link.send(.history(sessionId: sessionId, before: cursor))
     }
 
+    /// Puts a session in another permission mode. The Mac answers with
+    /// the session, the mode marked as on its way.
+    public func setMode(sessionId: String, mode: PermissionMode) async {
+        guard let link, case .connected = status else { return }
+        await link.send(.mode(sessionId: sessionId, mode: mode.wire))
+    }
+
     /// Asks the Mac where a session can be started.
     public func loadFolders() async {
         guard let link, case .connected = status else { return }

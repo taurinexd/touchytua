@@ -79,6 +79,7 @@ public enum SessionReducer {
         // event must not undo a newer transition.
         if sessions[id] != nil, at < session.lastEventAt { return }
         session.lastEventAt = at
+        if let mode = envelope.event["permission_mode"]?.stringValue, !mode.isEmpty { session.mode = mode }
 
         switch name {
         case "UserPromptSubmit":

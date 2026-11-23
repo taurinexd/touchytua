@@ -47,7 +47,9 @@ struct SessionDetailView: View {
                             QuestionCard(request: request, answering: $answering)
                                 .id(request.id)
                         } else {
-                            PermissionCard(request: request)
+                            PermissionCard(request: request, modeNote: session.nextMode.map {
+                                "Approving also puts this session in \(PermissionMode(wire: $0).label) mode."
+                            })
                         }
                     }
                     if let round = session.round {
@@ -85,9 +87,11 @@ struct SessionDetailView: View {
         // aside: two fields over one keyboard hide the card's Send. It
         // stays in the view, so a draft in it is not lost.
         .safeAreaInset(edge: .bottom) {
-            PromptBar(sessionId: session.id, project: session.cwd)
+            PromptBar(sessionId: session.id, project: session.cwd, mode: session.shownMode, modeNote: session.modeNote)
                 .frame(maxHeight: answering == nil ? nil : 0)
-                .clipped()
+                // Cut to nothing while an answer is typed; otherwise open
+                // upwards, where the mode menu rises.
+                .mask { Rectangle().padding(.top, answering == nil ? -400 : 0) }
                 .opacity(answering == nil ? 1 : 0)
                 // Clipping cut the bar's own background off the strip below
                 // it, and the text scrolled into view there.

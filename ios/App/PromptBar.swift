@@ -25,6 +25,10 @@ struct PromptBar: View {
     let sessionId: String
     /// The folder the session works in: its name is a word to expect.
     var project: String?
+    /// The session's permission mode, as the button shows it.
+    var mode = PermissionMode(wire: nil)
+    /// One line about a mode chosen here that Claude Code has not taken yet.
+    var modeNote: String?
     @State private var text = ""
     @FocusState private var typing: Bool
     /// When the finger went down on the microphone, in hold-to-talk.
@@ -66,13 +70,18 @@ struct PromptBar: View {
                 Text(notice)
                     .font(Theme.body(13))
                     .foregroundStyle(Theme.red)
-            } else if let hint {
+            } else if let hint = hint ?? modeNote {
                 Text(hint)
                     .font(Theme.body(13))
                     .foregroundStyle(slidAway ? Theme.red : Theme.textTertiary)
                     .monospacedDigit()
             }
             HStack(alignment: .bottom, spacing: 10) {
+                ModeButton(mode: mode, pending: modeNote != nil, enabled: connected && !dictating) { chosen in
+                    Task { await connection.setMode(sessionId: sessionId, mode: chosen) }
+                }
+                // Its menu opens over the field beside it.
+                .zIndex(1)
                 TextField(phase == .listening ? "Listening…" : "Message Claude", text: $text, axis: .vertical)
                     .font(Theme.body(16))
                     .foregroundStyle(Theme.text)

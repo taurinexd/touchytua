@@ -164,17 +164,43 @@ public enum MarkdownBlock: Equatable, Sendable {
     /// `marker` is "•" for a bullet, or the number as written ("3.").
     case item(marker: String, text: String)
     case code(String)
+    /// A table: every row has as many cells as the header.
+    case table(header: [String], rows: [[String]])
 
     public static func parse(_ text: String) -> [MarkdownBlock] {
         var blocks: [MarkdownBlock] = []
         var paragraph: [String] = []
         var code: [String]?
+        /// The table being read: its header and the rows so far.
+        var table: (header: [String], rows: [[String]])?
         func endParagraph() {
             if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))) }
             paragraph = []
         }
+        func endTable() {
+            if let open = table { blocks.append(.table(header: open.header, rows: open.rows)) }
+            table = nil
+        }
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            if let open = table {
+                // A table runs until the first line without a bar.
+                if line.contains("|"), !line.hasPrefix("```") {
+                    var cells = Array(Self.cells(line).prefix(open.header.count))
+                    cells += Array(repeating: "", count: open.header.count - cells.count)
+                    table?.rows.append(cells)
+                    continue
+                }
+                endTable()
+            }
+            // A line of dashes between bars makes the line above it a header.
+            if code == nil, let header = paragraph.last.map(Self.cells), header.count > 1 || paragraph.last?.hasPrefix("|") == true,
+               Self.isRule(line, columns: header.count) {
+                paragraph.removeLast()
+                endParagraph()
+                table = (header, [])
+                continue
+            }
             if line.hasPrefix("```") {
                 if let open = code {
                     blocks.append(.code(open.joined(separator: "\n")))
@@ -198,8 +224,41 @@ public enum MarkdownBlock: Equatable, Sendable {
             }
         }
         if let open = code { blocks.append(.code(open.joined(separator: "\n"))) }
+        endTable()
         endParagraph()
         return blocks
+    }
+
+    /// The cells of a table line: split at the bars, except escaped ones;
+    /// the bars around the line are optional.
+    private static func cells(_ line: String) -> [String] {
+        var cells: [String] = [""]
+        var escaped = false
+        for character in line {
+            if escaped {
+                if character != "|" { cells[cells.count - 1].append("\\") }
+                cells[cells.count - 1].append(character)
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "|" {
+                cells.append("")
+            } else {
+                cells[cells.count - 1].append(character)
+            }
+        }
+        if escaped { cells[cells.count - 1].append("\\") }
+        if line.hasPrefix("|") { cells.removeFirst() }
+        if line.hasSuffix("|"), !line.hasSuffix("\\|"), !cells.isEmpty { cells.removeLast() }
+        return cells.map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    /// `|---|:--:|`: the line under a table's header.
+    private static func isRule(_ line: String, columns: Int) -> Bool {
+        let cells = cells(line)
+        return cells.count == columns && line.contains("-") && cells.allSatisfy { cell in
+            cell.contains("-") && cell.allSatisfy { $0 == "-" || $0 == ":" }
+        }
     }
 
     private static func heading(_ line: String) -> MarkdownBlock? {

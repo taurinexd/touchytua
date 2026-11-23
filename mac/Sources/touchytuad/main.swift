@@ -93,10 +93,12 @@ let router = PhoneRouter(
     hub: hub, inject: { inbox, text in try InboxInjector.inject(text: text, into: inbox) },
     folders: { desk.folders() }, start: { desk.start(folder: $0, prompt: $1, name: $2) },
     addresses: {
-        let addresses = Setup.currentEndpoints(port: phonePort)
+        let tailscale = Setup.tailscale()
+        let addresses = Setup.endpoints(lanIP: Setup.lanIPv4(), tailscaleName: tailscale.name, port: phonePort)
         // Kinds only: the addresses themselves stay out of the log.
-        let kinds = addresses.map { String($0.prefix { $0 != ":" }) }.joined(separator: ", ")
-        Log.info("phone: told where the Mac listens now (\(kinds.isEmpty ? "nowhere known" : kinds))")
+        var told = addresses.map { String($0.prefix { $0 != ":" }) }.joined(separator: ", ")
+        if case let .missing(why) = tailscale { told += "; Tailscale \(why)" }
+        Log.info("phone: told where the Mac listens now (\(told))")
         return addresses
     })
 let phoneServer = PhoneServer(store: store, router: router, macName: Host.current().localizedName ?? "Mac")

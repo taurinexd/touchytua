@@ -4,7 +4,7 @@ import Foundation
 /// Helpers for `touchytua pair` / `daemon --ensure`.
 public enum Setup {
     /// The plugin's version, the same as in its manifest.
-    public static let version = "0.3.9"
+    public static let version = "0.3.10"
 
     /// Whether a plugin copy of version `shipped` may put its binaries in
     /// place of the installed ones. A session started before an update
@@ -46,9 +46,20 @@ public enum Setup {
         "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
     ]
 
-    /// This Mac's MagicDNS name, asked to Tailscale itself; nil when it is
-    /// not installed, not running, or slow to answer.
-    public static func tailscaleName(tools: [String] = tailscaleTools, patience: TimeInterval = 3) -> String? {
+    /// What asking Tailscale for this Mac's name gave: the name, or why not.
+    public enum TailscaleAnswer: Equatable, Sendable {
+        case name(String)
+        case missing(why: String)
+
+        public var name: String? {
+            if case let .name(name) = self { return name }
+            return nil
+        }
+    }
+
+    /// This Mac's MagicDNS name, asked to Tailscale itself.
+    public static func tailscale(tools: [String] = tailscaleTools, patience: TimeInterval = 3) -> TailscaleAnswer {
+        var why = "not installed"
         for path in tools where FileManager.default.isExecutableFile(atPath: path) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: path)
@@ -56,20 +67,26 @@ public enum Setup {
             let out = Pipe()
             process.standardOutput = out
             process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { continue }
+            process.standardInput = FileHandle.nullDevice
+            guard (try? process.run()) != nil else {
+                why = "could not be started"
+                continue
+            }
             let giveUp = DispatchWorkItem { if process.isRunning { process.terminate() } }
             DispatchQueue.global().asyncAfter(deadline: .now() + patience, execute: giveUp)
             let data = out.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             giveUp.cancel()
-            if process.terminationStatus == 0, let name = tailscaleDNSName(fromStatusJSON: data) { return name }
+            if process.terminationStatus == 0, let name = tailscaleDNSName(fromStatusJSON: data) { return .name(name) }
+            why = process.terminationStatus == 0
+                ? "not connected" : "status ended with \(process.terminationStatus), \(data.count) bytes"
         }
-        return nil
+        return .missing(why: why)
     }
 
     /// Where the phone can reach this Mac right now.
     public static func currentEndpoints(port: UInt16) -> [String] {
-        endpoints(lanIP: lanIPv4(), tailscaleName: tailscaleName(), port: port)
+        endpoints(lanIP: lanIPv4(), tailscaleName: tailscale().name, port: port)
     }
 
     public static func endpoints(lanIP: String?, tailscaleName: String?, port: UInt16) -> [String] {

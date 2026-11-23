@@ -17,20 +17,34 @@ public struct PairingRecord: Codable, Equatable, Sendable {
     }
 
     /// This pairing with the addresses the Mac says it listens on now.
-    /// Only addresses that can be dialed count, and a list with none of
-    /// them changes nothing: the ones already known may still work.
+    /// Only addresses that can be dialed count. A kind the Mac leaves out
+    /// (Tailscale switched off for a moment) keeps the address already
+    /// known: it may work again by the time it is needed.
     public func refreshed(with addresses: [String]) -> PairingRecord {
         var kept: [String] = []
+        var kinds: Set<String> = []
         for address in addresses {
-            switch Endpoint(address) {
-            case .lan, .tailscale: if !kept.contains(address) { kept.append(address) }
-            default: break
-            }
+            guard let kind = Self.kind(of: address), !kept.contains(address) else { continue }
+            kept.append(address)
+            kinds.insert(kind)
         }
         guard !kept.isEmpty else { return self }
+        for address in endpoints {
+            guard let kind = Self.kind(of: address), !kinds.contains(kind), !kept.contains(address) else { continue }
+            kept.append(address)
+        }
         var record = self
         record.endpoints = Array(kept.prefix(Self.mostAddresses))
         return record
+    }
+
+    /// `lan` or `ts` for an address that can be dialed, nil for anything else.
+    private static func kind(of address: String) -> String? {
+        switch Endpoint(address) {
+        case .lan: "lan"
+        case .tailscale: "ts"
+        default: nil
+        }
     }
 
     static let mostAddresses = 6

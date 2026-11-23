@@ -41,6 +41,11 @@ final class HookServer: @unchecked Sendable {
         while true {
             let fd = accept(listenFD, nil, nil)
             if fd < 0 { continue }
+            // The hook may be gone before its answer: Claude Code kills it
+            // when the request is answered in the terminal. Writing to it
+            // then must fail, not kill the daemon with SIGPIPE.
+            var on: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
             let hub = self.hub
             Thread.detachNewThread {
                 guard let line = Self.readAll(fd),

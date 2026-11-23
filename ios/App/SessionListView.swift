@@ -11,6 +11,7 @@ struct SessionListView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if connection.macs.count > 1, let name = connection.macName { whichMac(name) }
             ConnectionBanner()
             if connection.state.sessions.isEmpty {
                 empty
@@ -65,6 +66,31 @@ struct SessionListView: View {
         }
         .padding(.leading, 18)
         .padding(.trailing, 6)
+    }
+
+    /// With more than one Mac paired, whose sessions these are. The Macs
+    /// are changed in the settings, one tap from here.
+    private func whichMac(_ name: String) -> some View {
+        Button {
+            showingSettings = true
+        } label: {
+            HStack(spacing: 6) {
+                Text(name.uppercased())
+                    .font(Theme.display(12, .bold))
+                    .tracking(0.8)
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                Spacer()
+            }
+            .foregroundStyle(Theme.textTertiary)
+            .padding(.horizontal, 18)
+            .frame(minHeight: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Mac: \(name)")
+        .accessibilityHint("Opens the settings, where the Mac is changed")
     }
 
     private var connected: Bool {

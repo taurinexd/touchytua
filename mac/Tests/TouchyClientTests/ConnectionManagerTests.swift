@@ -52,10 +52,10 @@ actor Gate {
     }
 
     /// A Mac this phone is already paired with.
-    private func pairedMac(endpoints: [String]) -> FakeMac {
+    private func pairedMac(_ name: String = "Studio", endpoints: [String]) -> FakeMac {
         var mac = FakeMac()
         mac.knownPhoneKey = store.key.publicKey.rawRepresentation
-        store.save(PairingRecord(macName: "Studio", macKey: mac.publicKey, endpoints: endpoints))
+        store.save(PairingRecord(macName: name, macKey: mac.publicKey, endpoints: endpoints))
         return mac
     }
 
@@ -521,6 +521,170 @@ actor Gate {
 
         #expect(await eventually { manager.launcher.problem == "That folder isn't available any more." })
         #expect(spawned.requests.isEmpty)
+    }
+
+    // MARK: more than one Mac
+
+    /// Two paired Macs, each with one session: the laptop paired first, so
+    /// the studio is the one in use.
+    private func twoMacs() async -> (studio: FakeMac, laptop: FakeMac) {
+        let laptop = pairedMac("Laptop", endpoints: [ts])
+        let studio = pairedMac("Studio", endpoints: [lan])
+        await openSession("on-laptop", on: laptop)
+        await openSession("on-studio", on: studio)
+        network.set(ts, .mac(laptop))
+        network.set(lan, .mac(studio))
+        return (studio, laptop)
+    }
+
+    @Test func pairingASecondMacKeepsTheFirst() async {
+        let studio = pairedMac(endpoints: [lan])
+        network.set(lan, .mac(studio))
+        var laptop = FakeMac()
+        laptop.pendingSecret = secret
+        await openSession("on-laptop", on: laptop)
+        network.set(ts, .mac(laptop))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+
+        await manager.pair(url: PairingPayload(
+            v: 1, macKey: laptop.publicKey, secret: secret, endpoints: [ts], macName: "Laptop").url())
+
+        #expect(store.pairings().map(\.macName) == ["Laptop", "Studio"])
+        #expect(manager.macs.map(\.name) == ["Laptop", "Studio"])
+        #expect(manager.macInUse == laptop.publicKey)
+        #expect(manager.macName == "Laptop")
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-laptop"] })
+    }
+
+    @Test func movingToAnotherMacShowsItsSessions() async {
+        let (studio, laptop) = await twoMacs()
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-studio"] })
+        #expect(manager.macInUse == studio.publicKey)
+
+        manager.use(laptop.publicKey)
+
+        // Nothing of the Mac just left stays on screen while the other answers.
+        #expect(manager.state == ClientState())
+        #expect(manager.macName == "Laptop")
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-laptop"] })
+        #expect(manager.status == .connected(via: "Tailscale"))
+        #expect(manager.macs.map(\.name) == ["Laptop", "Studio"])
+    }
+
+    @Test func theMacInUseIsStillTheOneAfterARelaunch() async {
+        let (_, laptop) = await twoMacs()
+        let first = manager()
+        first.use(laptop.publicKey)
+        first.stop()
+
+        let relaunched = manager()
+        defer { relaunched.stop() }
+        #expect(relaunched.macName == "Laptop")
+        relaunched.start()
+        #expect(await eventually { relaunched.state.sessions.map(\.id) == ["on-laptop"] })
+    }
+
+    @Test func movingToAMacThatIsNotPairedDoesNothing() async {
+        let (studio, _) = await twoMacs()
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-studio"] })
+
+        manager.use(FakeMac().publicKey)
+        manager.use(studio.publicKey)
+
+        #expect(manager.state.sessions.map(\.id) == ["on-studio"])
+        #expect(manager.status == .connected(via: "Wi-Fi"))
+    }
+
+    @Test func unpairingTheMacInUseMovesToTheOther() async {
+        let (_, laptop) = await twoMacs()
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-studio"] })
+
+        manager.unpair()
+
+        #expect(store.pairings().map(\.macName) == ["Laptop"])
+        #expect(manager.macs == [PairedMac(id: laptop.publicKey, name: "Laptop")])
+        #expect(manager.macName == "Laptop")
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-laptop"] })
+    }
+
+    @Test func aSecondMacThatCannotBeReachedLeavesTheFirstInUse() async {
+        let studio = pairedMac(endpoints: [lan])
+        await openSession("on-studio", on: studio)
+        network.set(lan, .mac(studio))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-studio"] })
+
+        await manager.pair(url: PairingPayload(
+            v: 1, macKey: FakeMac().publicKey, secret: secret, endpoints: [ts], macName: "Laptop").url())
+
+        #expect(manager.pairingProblem == ConnectionManager.unreachableMessage("Laptop"))
+        #expect(store.pairings().map(\.macName) == ["Studio"])
+        #expect(manager.macName == "Studio")
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+        #expect(manager.state.sessions.map(\.id) == ["on-studio"])
+
+        manager.clearPairingProblem()
+        #expect(manager.pairingProblem == nil)
+    }
+
+    @Test func whileAMacIsBeingAddedItsNameIsKnown() async {
+        let studio = pairedMac(endpoints: [lan])
+        network.set(lan, .mac(studio))
+        network.set(ts, .silent)
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+
+        let adding = Task { await manager.pair(url: PairingPayload(
+            v: 1, macKey: FakeMac().publicKey, secret: secret, endpoints: [ts], macName: "Laptop").url()) }
+        #expect(await eventually { manager.macBeingAdded == "Laptop" })
+        #expect(manager.macName == "Studio")
+        await adding.value
+
+        #expect(manager.macBeingAdded == nil)
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+    }
+
+    @Test func textThatIsNotAPairingCodeLeavesTheMacInUseConnected() async {
+        let studio = pairedMac(endpoints: [lan])
+        network.set(lan, .mac(studio))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.status == .connected(via: "Wi-Fi") })
+
+        await manager.pair(url: "https://example.com")
+
+        #expect(manager.pairingProblem == ConnectionManager.notAPairingCodeMessage)
+        #expect(manager.status == .connected(via: "Wi-Fi"))
+    }
+
+    @Test func addressesFromTheMacInUseLeaveTheOtherMacAlone() async {
+        var (studio, laptop) = await twoMacs()
+        studio.addresses = ["lan:192.168.1.99:47311"]
+        network.set(lan, .mac(studio))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+
+        #expect(await eventually { store.pairings().first?.endpoints == ["lan:192.168.1.99:47311"] })
+        #expect(store.pairings().map(\.macName) == ["Studio", "Laptop"])
+        #expect(store.pairings().last == PairingRecord(macName: "Laptop", macKey: laptop.publicKey, endpoints: [ts]))
     }
 
     // MARK: lifecycle

@@ -19,6 +19,6 @@ struct RootView: View {
             }
         }
         .tint(Theme.green)
-        .onChange(of: connection.macName) { _, _ in path = [] }
+        .onChange(of: connection.macInUse) { _, _ in path = [] }
     }
 }

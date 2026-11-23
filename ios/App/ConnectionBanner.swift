@@ -7,12 +7,27 @@ struct ConnectionBanner: View {
     @State private var scanning = false
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            // A code that added no Mac, scanned outside the settings.
+            if let problem = connection.pairingProblem {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(problem)
+                        .font(Theme.body(15))
+                        .foregroundStyle(Theme.red)
+                    Button("Dismiss") { connection.clearPairingProblem() }
+                        .buttonStyle(ActionButtonStyle(color: Theme.textSecondary, filled: false))
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .card()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
             switch connection.status {
             case .connected, .unpaired:
                 EmptyView()
             case .connecting:
-                line("Connecting to \(connection.macName ?? "your Mac")…", busy: true)
+                line("Connecting to \(connection.macBeingAdded ?? connection.macName ?? "your Mac")…", busy: true)
             case .reconnecting:
                 line("Reconnecting to \(connection.macName ?? "your Mac")…", busy: true)
             case let .failed(message):

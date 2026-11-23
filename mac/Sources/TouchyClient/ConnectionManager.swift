@@ -51,7 +51,16 @@ public final class ConnectionManager {
     public private(set) var status: ConnectionStatus
     /// The last picture received from the Mac. Kept while reconnecting.
     public private(set) var state = ClientState()
+    /// The name of the Mac in use.
     public private(set) var macName: String?
+    /// Every paired Mac, by name.
+    public private(set) var macs: [PairedMac] = []
+    /// Which of `macs` the app talks to.
+    public private(set) var macInUse: PairedMac.ID?
+    /// The name of the Mac being paired, while `pair` is trying to reach it.
+    public private(set) var macBeingAdded: String?
+    /// Why the code just scanned added no Mac, while another stays in use.
+    public private(set) var pairingProblem: String?
     /// A problem worth a line on screen that is not a connection problem.
     public private(set) var notice: String?
     /// The prompts sent from here that Claude has not taken up yet.
@@ -77,9 +86,31 @@ public final class ConnectionManager {
         self.deviceName = deviceName
         self.timing = timing
         self.dial = dial
-        let paired = store.pairings().first
-        macName = paired?.macName
-        status = paired == nil ? .unpaired : .connecting
+        status = store.pairings().isEmpty ? .unpaired : .connecting
+        readMacs()
+    }
+
+    /// The first saved pairing is the Mac in use.
+    private func readMacs() {
+        let records = store.pairings()
+        macName = records.first?.macName
+        macInUse = records.first?.macKey
+        macs = records.map { PairedMac(id: $0.macKey, name: $0.macName) }.sorted {
+            switch $0.name.localizedStandardCompare($1.name) {
+            case .orderedAscending: true
+            case .orderedDescending: false
+            case .orderedSame: $0.id.lexicographicallyPrecedes($1.id)
+            }
+        }
+    }
+
+    /// Nothing of a Mac stays on screen once the app talks to another.
+    private func forgetThePicture() {
+        state = ClientState()
+        notice = nil
+        outbox = Outbox()
+        earlier = Earlier()
+        launcher = Launcher()
     }
 
     // MARK: lifecycle
@@ -102,6 +133,7 @@ public final class ConnectionManager {
     public func stop() {
         epoch += 1
         pairing = false
+        macBeingAdded = nil
         runner?.cancel()
         runner = nil
         if let link {
@@ -112,18 +144,29 @@ public final class ConnectionManager {
         status = store.pairings().isEmpty ? .unpaired : .connecting
     }
 
-    /// Pairs with the Mac whose QR says `url`, replacing the current one.
-    /// Returns with `status` either `connected` or `failed`.
+    /// Pairs with the Mac whose QR says `url` and moves to it; the Macs
+    /// already paired stay. Returns with the outcome known: `connected`, or
+    /// what went wrong in `status` (no Mac to go back to) or in
+    /// `pairingProblem` (back on the Mac in use).
     public func pair(url: String) async {
+        pairingProblem = nil
         guard let payload = try? PairingPayload.parse(url: url) else {
-            status = .failed(Self.notAPairingCodeMessage)
+            if macInUse == nil { status = .failed(Self.notAPairingCodeMessage) } else {
+                pairingProblem = Self.notAPairingCodeMessage
+            }
             return
         }
         stop()
         let mine = epoch
         status = .connecting
         pairing = true
-        defer { if mine == epoch { pairing = false } }
+        macBeingAdded = payload.macName
+        defer {
+            if mine == epoch {
+                pairing = false
+                macBeingAdded = nil
+            }
+        }
         let record = PairingRecord(macName: payload.macName, macKey: payload.macKey, endpoints: payload.endpoints)
         // An address that does not answer leaves the QR secret unused, so
         // trying again is safe.
@@ -140,30 +183,56 @@ public final class ConnectionManager {
         }
         switch outcome {
         case let .connected(link, endpoint):
-            for old in store.pairings() { store.remove(macKey: old.macKey) }
             store.save(record)
-            macName = record.macName
-            state = ClientState()
+            readMacs()
+            forgetThePicture()
             // Set here too, so that `pair` returns with its outcome known.
             status = .connected(via: Endpoint(endpoint)?.label ?? endpoint)
             runner = Task { [weak self] in await self?.run(record, established: (link, endpoint)) }
         case .rejected:
-            status = .failed(Self.qrExpiredMessage)
+            couldNotPair(Self.qrExpiredMessage)
         case .unreachable:
-            status = .failed(Self.unreachableMessage(payload.macName))
+            couldNotPair(Self.unreachableMessage(payload.macName))
         }
     }
 
+    private func couldNotPair(_ problem: String) {
+        guard macInUse != nil else {
+            status = .failed(problem)
+            return
+        }
+        pairingProblem = problem
+        pairing = false
+        macBeingAdded = nil
+        start()
+    }
+
+    public func clearPairingProblem() {
+        pairingProblem = nil
+    }
+
+    /// Moves to another paired Mac. It stays the one in use across launches.
+    public func use(_ mac: PairedMac.ID) {
+        guard mac != macInUse, let record = store.pairings().first(where: { $0.macKey == mac }) else { return }
+        stop()
+        store.save(record)
+        move()
+    }
+
+    /// Forgets the Mac in use and moves to another paired one, if any.
     public func unpair() {
         stop()
-        for record in store.pairings() { store.remove(macKey: record.macKey) }
-        state = ClientState()
-        macName = nil
-        notice = nil
-        outbox = Outbox()
-        earlier = Earlier()
-        launcher = Launcher()
-        status = .unpaired
+        if let macInUse { store.remove(macKey: macInUse) }
+        move()
+    }
+
+    /// Starts over with whichever Mac the store now has first.
+    private func move() {
+        readMacs()
+        forgetThePicture()
+        pairingProblem = nil
+        status = macInUse == nil ? .unpaired : .connecting
+        start()
     }
 
     // MARK: actions
@@ -392,7 +461,7 @@ public final class ConnectionManager {
         }
         if case let .addresses(addresses) = message {
             // Kept for the next time the Mac has to be found; this link stays.
-            if let known = store.pairings().first {
+            if let known = store.pairings().first(where: { $0.macKey == macInUse }) {
                 let fresh = known.refreshed(with: addresses)
                 if fresh != known { store.save(fresh) }
             }

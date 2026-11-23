@@ -4,7 +4,7 @@ import Foundation
 /// Helpers for `touchytua pair` / `daemon --ensure`.
 public enum Setup {
     /// The plugin's version, the same as in its manifest.
-    public static let version = "0.3.8"
+    public static let version = "0.3.9"
 
     /// Whether a plugin copy of version `shipped` may put its binaries in
     /// place of the installed ones. A session started before an update
@@ -38,6 +38,38 @@ public enum Setup {
               var name = me["DNSName"] as? String, !name.isEmpty else { return nil }
         if name.hasSuffix(".") { name.removeLast() }
         return name
+    }
+
+    /// Where the Tailscale command-line tool is installed, when it is.
+    public static let tailscaleTools = [
+        "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+    ]
+
+    /// This Mac's MagicDNS name, asked to Tailscale itself; nil when it is
+    /// not installed, not running, or slow to answer.
+    public static func tailscaleName(tools: [String] = tailscaleTools, patience: TimeInterval = 3) -> String? {
+        for path in tools where FileManager.default.isExecutableFile(atPath: path) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = ["status", "--json"]
+            let out = Pipe()
+            process.standardOutput = out
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { continue }
+            let giveUp = DispatchWorkItem { if process.isRunning { process.terminate() } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + patience, execute: giveUp)
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            giveUp.cancel()
+            if process.terminationStatus == 0, let name = tailscaleDNSName(fromStatusJSON: data) { return name }
+        }
+        return nil
+    }
+
+    /// Where the phone can reach this Mac right now.
+    public static func currentEndpoints(port: UInt16) -> [String] {
+        endpoints(lanIP: lanIPv4(), tailscaleName: tailscaleName(), port: port)
     }
 
     public static func endpoints(lanIP: String?, tailscaleName: String?, port: UInt16) -> [String] {

@@ -6,7 +6,8 @@ public struct PairingRecord: Codable, Equatable, Sendable {
     public var macName: String
     /// The Mac's static public key, pinned from the QR.
     public var macKey: Data
-    /// Where the QR said the Mac listens, in the order to try them.
+    /// Where the Mac listens, in the order to try them: from the QR, then
+    /// whatever the Mac said last.
     public var endpoints: [String]
 
     public init(macName: String, macKey: Data, endpoints: [String]) {
@@ -14,6 +15,25 @@ public struct PairingRecord: Codable, Equatable, Sendable {
         self.macKey = macKey
         self.endpoints = endpoints
     }
+
+    /// This pairing with the addresses the Mac says it listens on now.
+    /// Only addresses that can be dialed count, and a list with none of
+    /// them changes nothing: the ones already known may still work.
+    public func refreshed(with addresses: [String]) -> PairingRecord {
+        var kept: [String] = []
+        for address in addresses {
+            switch Endpoint(address) {
+            case .lan, .tailscale: if !kept.contains(address) { kept.append(address) }
+            default: break
+            }
+        }
+        guard !kept.isEmpty else { return self }
+        var record = self
+        record.endpoints = Array(kept.prefix(Self.mostAddresses))
+        return record
+    }
+
+    static let mostAddresses = 6
 }
 
 /// Where the phone keeps its key and its pairings: the Keychain in the app,

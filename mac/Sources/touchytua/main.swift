@@ -142,16 +142,7 @@ func printConflicts() {
 func pair(openPNG: Bool, printQR: Bool) throws {
     installBinaries()
     let store = PairingStore(directory: home)
-    let tsName: String? = {
-        for path in ["/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale",
-                     "/Applications/Tailscale.app/Contents/MacOS/Tailscale"]
-        where FileManager.default.isExecutableFile(atPath: path) {
-            let r = run(path, ["status", "--json"])
-            if r.status == 0 { return Setup.tailscaleDNSName(fromStatusJSON: r.output) }
-        }
-        return nil
-    }()
-    let endpoints = Setup.endpoints(lanIP: Setup.lanIPv4(), tailscaleName: tsName, port: 47311)
+    let endpoints = Setup.currentEndpoints(port: 47311)
     let payload = try store.beginPairing(endpoints: endpoints, macName: Host.current().localizedName ?? "Mac")
     let url = payload.url()
 
@@ -179,7 +170,7 @@ func pair(openPNG: Bool, printQR: Bool) throws {
         say("\n" + (Setup.terminalQR(url) ?? "(QR code not available)"))
     }
     say("Addresses: \(endpoints.joined(separator: ", "))")
-    if tsName == nil {
+    if !endpoints.contains(where: { $0.hasPrefix("ts:") }) {
         say("To use touchytua away from your Wi-Fi, install Tailscale on the Mac and the iPhone, then run /pair again.")
     }
     say("")

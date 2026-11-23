@@ -18,7 +18,8 @@
 
 ## Connessione
 - Primo pairing: gli indirizzi del QR uno alla volta, nell'ordine (il segreto vale una volta sola).
-- Riconnessione: tutti gli indirizzi del QR e la ricerca Bonjour in parallelo; vale il primo handshake riuscito, gli altri vengono chiusi. Il Mac accetta più connessioni dallo stesso telefono.
+- Dopo ogni `hello` il Mac manda `addresses { endpoints }`: dove ascolta adesso (`lan:…`, `ts:…`). Il telefono li salva al posto di quelli del QR, così un cambio di rete o Tailscale attivato dopo non richiedono un nuovo pairing. Contano solo indirizzi `lan:` e `ts:` validi, al massimo 6; una lista senza indirizzi validi non cambia nulla. Sono solo un indizio su dove bussare: chi risponde è autenticato dall'handshake.
+- Riconnessione: tutti gli indirizzi salvati e la ricerca Bonjour in parallelo; vale il primo handshake riuscito, gli altri vengono chiusi. Il Mac accetta più connessioni dallo stesso telefono.
 
 ## Handshake (per connessione)
 1. Telefono → Mac: `Hello { phoneKey, ephemeral, proof?, v }` (JSON).

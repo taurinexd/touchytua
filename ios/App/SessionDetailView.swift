@@ -4,6 +4,7 @@ import TouchyProtocol
 
 struct SessionDetailView: View {
     @Environment(ConnectionManager.self) private var connection
+    @Environment(\.verticalSizeClass) private var height
     let sessionId: String
     /// The request whose own-answer field has the keyboard.
     @State private var answering: String?
@@ -30,6 +31,12 @@ struct SessionDetailView: View {
         .onDisappear { connection.forgetEarlier(sessionId: sessionId) }
     }
 
+    /// What decides whether the view opens on a request card.
+    private struct RequestInView: Equatable {
+        let request: String?
+        let short: Bool
+    }
+
     private func content(_ session: Session) -> some View {
         let sent = connection.outbox.waiting(in: session.id)
         return ScrollViewReader { scroll in
@@ -50,6 +57,7 @@ struct SessionDetailView: View {
                             PermissionCard(request: request, modeNote: session.nextMode.map {
                                 "Approving also puts this session in \(PermissionMode(wire: $0).label) mode."
                             })
+                            .id(request.id)
                         }
                     }
                     if let round = session.round {
@@ -78,6 +86,16 @@ struct SessionDetailView: View {
                     try? await Task.sleep(for: .milliseconds(350))
                     withAnimation(.snappy(duration: 0.25)) { scroll.scrollTo(request, anchor: .bottom) }
                 }
+            }
+            // Held sideways the screen is too short for the headline and a
+            // card together: open on the card's buttons, they are why the
+            // session is waiting.
+            .task(id: RequestInView(request: connection.state.requests(for: session.id).first?.id, short: height == .compact)) {
+                guard height == .compact, let request = connection.state.requests(for: session.id).first?.id else { return }
+                // After the screen has slid in: a scroll asked for during
+                // the push is dropped.
+                try? await Task.sleep(for: .milliseconds(700))
+                withAnimation(.snappy(duration: 0.25)) { scroll.scrollTo(request, anchor: .bottom) }
             }
             .onChange(of: sent.count) { before, now in
                 if now > before { withAnimation(.snappy(duration: 0.25)) { scroll.scrollTo("sent", anchor: .bottom) } }

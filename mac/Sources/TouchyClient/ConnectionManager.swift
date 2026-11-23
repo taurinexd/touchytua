@@ -335,8 +335,11 @@ public final class ConnectionManager {
     private func run(_ record: PairingRecord, established: (PhoneLink, String)?) async {
         var established = established
         var failures = 0
+        var record = record
         while !Task.isCancelled {
             if established == nil {
+                // The Mac may have sent newer addresses while connected.
+                if let saved = store.pairings().first(where: { $0.macKey == record.macKey }) { record = saved }
                 switch await reach(record, secret: nil) {
                 case let .connected(link, endpoint):
                     established = (link, endpoint)
@@ -385,6 +388,14 @@ public final class ConnectionManager {
         }
         if case let .folders(items, enabled) = message {
             launcher.received(folders: items, enabled: enabled)
+            return
+        }
+        if case let .addresses(addresses) = message {
+            // Kept for the next time the Mac has to be found; this link stays.
+            if let known = store.pairings().first {
+                let fresh = known.refreshed(with: addresses)
+                if fresh != known { store.save(fresh) }
+            }
             return
         }
         guard case let .error(code) = message else {

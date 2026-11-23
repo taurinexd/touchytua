@@ -88,9 +88,17 @@ let desk = LaunchDesk(
         Log.info("session started from the phone in \((request.folder as NSString).lastPathComponent)")
     })
 relay.desk = desk
+let phonePort = env["TOUCHYTUA_PORT"].flatMap(UInt16.init) ?? PhoneServer.port
 let router = PhoneRouter(
     hub: hub, inject: { inbox, text in try InboxInjector.inject(text: text, into: inbox) },
-    folders: { desk.folders() }, start: { desk.start(folder: $0, prompt: $1, name: $2) })
+    folders: { desk.folders() }, start: { desk.start(folder: $0, prompt: $1, name: $2) },
+    addresses: {
+        let addresses = Setup.currentEndpoints(port: phonePort)
+        // Kinds only: the addresses themselves stay out of the log.
+        let kinds = addresses.map { String($0.prefix { $0 != ":" }) }.joined(separator: ", ")
+        Log.info("phone: told where the Mac listens now (\(kinds.isEmpty ? "nowhere known" : kinds))")
+        return addresses
+    })
 let phoneServer = PhoneServer(store: store, router: router, macName: Host.current().localizedName ?? "Mac")
 relay.phone = phoneServer
 
@@ -101,7 +109,7 @@ do {
     // Hooks held back by a restart may come in now.
     try? FileManager.default.removeItem(
         atPath: (hookSocket as NSString).deletingLastPathComponent + "/" + Setup.restartMarkerName)
-    try phoneServer.start(port: env["TOUCHYTUA_PORT"].flatMap(UInt16.init) ?? PhoneServer.port)
+    try phoneServer.start(port: phonePort)
 } catch {
     Log.info("cannot start: \(error)")
     exit(1)

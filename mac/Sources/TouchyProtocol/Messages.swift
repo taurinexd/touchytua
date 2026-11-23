@@ -100,11 +100,15 @@ public enum MacToPhone: Codable, Equatable, Sendable {
     /// Where a session can be started; `enabled` is false when starting
     /// from the phone is switched off on the Mac.
     case folders(items: [StartFolder], enabled: Bool)
+    /// Where the Mac listens now (`lan:…`, `ts:…`), sent after the hello:
+    /// the addresses in the QR go stale when the network changes or
+    /// Tailscale is set up later.
+    case addresses([String])
     /// A type this build does not know (a newer plugin): ignored, never fatal.
     case unknown(String)
 
     private enum Keys: String, CodingKey {
-        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next, folders, enabled
+        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next, folders, enabled, endpoints
     }
 
     public init(from decoder: Decoder) throws {
@@ -125,6 +129,7 @@ public enum MacToPhone: Codable, Equatable, Sendable {
                                         next: try c.decodeIfPresent(String.self, forKey: .next))
         case "folders": self = .folders(items: try c.decode([StartFolder].self, forKey: .folders),
                                         enabled: try c.decode(Bool.self, forKey: .enabled))
+        case "addresses": self = .addresses(try c.decode([String].self, forKey: .endpoints))
         case let t: self = .unknown(t)
         }
     }
@@ -148,6 +153,8 @@ public enum MacToPhone: Codable, Equatable, Sendable {
             try c.encode(items, forKey: .items); try c.encodeIfPresent(next, forKey: .next)
         case let .folders(items, enabled):
             try c.encode("folders", forKey: .t); try c.encode(items, forKey: .folders); try c.encode(enabled, forKey: .enabled)
+        case let .addresses(endpoints):
+            try c.encode("addresses", forKey: .t); try c.encode(endpoints, forKey: .endpoints)
         }
     }
 }

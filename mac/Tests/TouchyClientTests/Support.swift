@@ -46,6 +46,8 @@ struct FakeMac {
     var dropsHandshake = false
     /// Where this Mac starts sessions from; without one, starting is off.
     var desk: LaunchDesk?
+    /// Where this Mac says it listens now.
+    var addresses: [String] = []
 
     var publicKey: Data { macStatic.publicKey.rawRepresentation }
 
@@ -55,7 +57,7 @@ struct FakeMac {
         let router = mac.desk.map { desk in
             PhoneRouter(hub: hub, inject: { _, _ in }, folders: { desk.folders() },
                         start: { desk.start(folder: $0, prompt: $1, name: $2) })
-        } ?? PhoneRouter(hub: hub) { _, _ in }
+        } ?? PhoneRouter(hub: hub, inject: { _, _ in }, addresses: { mac.addresses })
         Task {
             guard let hello = try? await transport.receive(), !mac.dropsHandshake else {
                 transport.close()

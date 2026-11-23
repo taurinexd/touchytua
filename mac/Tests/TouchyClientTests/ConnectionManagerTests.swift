@@ -74,6 +74,46 @@ actor Gate {
         }
     }
 
+    // MARK: addresses
+
+    @Test func theMacsCurrentAddressesReplaceTheOnesFromTheQR() async {
+        var mac = pairedMac(endpoints: [lan])
+        mac.addresses = ["lan:192.168.1.77:47311", ts]
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+
+        manager.start()
+
+        #expect(await eventually { store.pairings().first?.endpoints == ["lan:192.168.1.77:47311", ts] })
+        #expect(store.pairings().first?.macName == "Studio")
+    }
+
+    @Test func aMacFoundAwayFromHomeThroughAnAddressItSentLater() async {
+        var mac = pairedMac(endpoints: [lan])
+        mac.addresses = [lan, ts]
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { store.pairings().first?.endpoints == [lan, ts] })
+
+        // Away from home: the Wi-Fi address leads nowhere, Tailscale answers.
+        network.set(lan, .down)
+        network.set(ts, .mac(mac))
+        network.dropAll()
+
+        #expect(await eventually { manager.status == .connected(via: "Tailscale") })
+    }
+
+    @Test func addressesThatAreNotAddressesAreIgnored() {
+        let record = PairingRecord(macName: "Studio", macKey: Data([1]), endpoints: [lan])
+        #expect(record.refreshed(with: ["bonjour:abc", "http://x", "", "ts:"]) == record)
+        #expect(record.refreshed(with: []) == record)
+        #expect(record.refreshed(with: [ts, ts, "nonsense"]).endpoints == [ts])
+        #expect(record.refreshed(with: (1...20).map { "lan:10.0.0.\($0):47311" }).endpoints.count == 6)
+    }
+
     // MARK: pairing
 
     @Test func pairingSavesTheMacAndConnects() async {

@@ -8,16 +8,20 @@ public struct PhoneRouter: Sendable {
     let folders: @Sendable () -> (items: [StartFolder], enabled: Bool)
     /// Starts a session; returns why not when it does not.
     let start: @Sendable (_ folder: String, _ prompt: String, _ name: String?) -> SessionLaunch.Refusal?
+    /// Where this Mac listens now; empty when it cannot tell.
+    let addresses: @Sendable () -> [String]
 
     public init(
         hub: Hub, inject: @escaping @Sendable (InboxCredentials, String) throws -> Void,
         folders: @escaping @Sendable () -> (items: [StartFolder], enabled: Bool) = { ([], false) },
-        start: @escaping @Sendable (String, String, String?) -> SessionLaunch.Refusal? = { _, _, _ in .disabled }
+        start: @escaping @Sendable (String, String, String?) -> SessionLaunch.Refusal? = { _, _, _ in .disabled },
+        addresses: @escaping @Sendable () -> [String] = { [] }
     ) {
         self.hub = hub
         self.inject = inject
         self.folders = folders
         self.start = start
+        self.addresses = addresses
     }
 
     public func snapshot() async -> MacToPhone {
@@ -44,7 +48,8 @@ public struct PhoneRouter: Sendable {
         case .unknown:
             return [.error(code: "unsupported_message")]
         case .hello:
-            return [await snapshot()]
+            let addresses = addresses()
+            return [await snapshot()] + (addresses.isEmpty ? [] : [.addresses(addresses)])
         case let .decide(id, allow, text):
             return await hub.decide(requestId: id, allow: allow, message: text) ? [] : [.error(code: "unknown_request")]
         case let .answer(id, answers):

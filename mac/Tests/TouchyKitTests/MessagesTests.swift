@@ -50,6 +50,25 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
         #expect(fromMac == .unknown("confetti"))
     }
 
+    @Test func addressesRoundTrip() throws {
+        let message = MacToPhone.addresses(["lan:192.168.1.10:47311", "ts:m.ts.net:47311"])
+        let data = try JSONEncoder().encode(message)
+        #expect(String(decoding: data, as: UTF8.self).contains(#""t":"addresses""#))
+        #expect(try JSONDecoder().decode(MacToPhone.self, from: data) == message)
+    }
+
+    @Test func helloIsAnsweredWithWhereTheMacListensNow() async {
+        let router = PhoneRouter(hub: Hub(), inject: { _, _ in }, addresses: { ["ts:m.ts.net:47311"] })
+        let replies = await router.handle(.hello(deviceName: "iPhone"))
+        #expect(replies.count == 2)
+        #expect(replies.last == .addresses(["ts:m.ts.net:47311"]))
+    }
+
+    @Test func aMacThatKnowsNoAddressSaysNothingAboutThem() async {
+        let router = PhoneRouter(hub: Hub()) { _, _ in }
+        #expect(await router.handle(.hello(deviceName: "iPhone")).count == 1)
+    }
+
     @Test func unknownMessageGetsUnsupportedError() async {
         let router = PhoneRouter(hub: Hub()) { _, _ in }
         #expect(await router.handle(.unknown("teleport")) == [.error(code: "unsupported_message")])

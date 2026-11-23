@@ -195,6 +195,13 @@ public final class ConnectionManager {
     /// the session, the mode marked as on its way.
     public func setMode(sessionId: String, mode: PermissionMode) async {
         guard let link, case .connected = status else { return }
+        notice = nil
+        // Known here already: say it without a round trip.
+        if let session = state.sessions.first(where: { $0.id == sessionId }), let lock = session.modeLock,
+           mode.wire != session.mode {
+            notice = lock
+            return
+        }
         await link.send(.mode(sessionId: sessionId, mode: mode.wire))
     }
 
@@ -393,6 +400,8 @@ public final class ConnectionManager {
             outbox.dropLast()
         case "history_unavailable":
             earlier.failed()
+        case "mode_needs_mac":
+            notice = "This session never asks for permission, so its mode changes only on your Mac, with Shift+Tab."
         case "unsupported_message":
             // A Mac whose plugin is older than this app: it was asked
             // either for the folders or for a session's history.

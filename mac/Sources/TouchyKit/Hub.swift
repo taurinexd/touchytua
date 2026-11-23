@@ -44,6 +44,10 @@ public actor Hub {
     /// the session was started with it within reach, and a mode it does
     /// not take is given up.
     public static let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
+    /// The modes in which a session never asks for permission, not even
+    /// when a hook tells it to: no request, so nothing for a new mode to
+    /// travel with. There the mode changes only at the Mac.
+    public static let modesThatNeverAsk: Set<String> = ["bypassPermissions", "dontAsk"]
     /// How long after an approval the old mode may still be reported.
     static let modeGrace: Double = 3
     private let clock: @Sendable () -> Date
@@ -194,10 +198,22 @@ public actor Hub {
     /// The phone chose a permission mode. Claude Code takes one from a
     /// hook only in the answer to a permission request, so the change
     /// waits for the session's next one. False when it cannot be chosen.
+    public enum ModeRefusal: String, Error, Sendable {
+        case unknown = "mode_refused"
+        /// The session never asks: its mode changes only at the Mac.
+        case needsMac = "mode_needs_mac"
+    }
+
     public func setMode(sessionId: String, mode: String) -> Bool {
+        chooseMode(sessionId: sessionId, mode: mode) == nil
+    }
+
+    /// The same, saying why not.
+    public func chooseMode(sessionId: String, mode: String) -> ModeRefusal? {
         // The mode it is in can always be chosen: that takes a choice back.
         guard var session = sessions[sessionId],
-              Self.modes.contains(mode) || session.mode == mode else { return false }
+              Self.modes.contains(mode) || session.mode == mode else { return .unknown }
+        if let current = session.mode, current != mode, Self.modesThatNeverAsk.contains(current) { return .needsMac }
         if session.mode == mode {
             modeChanges[sessionId] = nil
             session.nextMode = nil
@@ -209,7 +225,7 @@ public actor Hub {
             sessions[sessionId] = session
             onChange(.session(session))
         }
-        return true
+        return nil
     }
 
     /// Carries a mode change forward with one hook event. Returns what the
@@ -222,7 +238,9 @@ public actor Hub {
         // Done, or not taken: a mode this Mac does not have is asked for
         // once, and must not make every later tool call ask.
         let refused = change.sentAt.map { reported != nil && at - $0 > Self.modeGrace } ?? false
-        if session.mode == change.mode || refused {
+        // Or the session stopped asking altogether: nothing will carry it.
+        let stoppedAsking = session.mode.map(Self.modesThatNeverAsk.contains) ?? false
+        if session.mode == change.mode || refused || stoppedAsking {
             modeChanges[id] = nil
             sessions[id]?.nextMode = nil
             return nil

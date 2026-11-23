@@ -46,6 +46,15 @@ import TouchyProtocol
         #expect(settled.modeNote == nil)
     }
 
+    /// Only a permission request can carry a new mode into a session, and
+    /// these modes never make one.
+    @Test func aSessionThatNeverAsksSaysWhereItsModeIsChanged() {
+        #expect(session(mode: "bypassPermissions").modeLock == "This session never asks for permission, so its mode changes only on your Mac, with Shift+Tab.")
+        #expect(session(mode: "dontAsk").modeLock != nil)
+        #expect(session(mode: "auto").modeLock == nil)
+        #expect(session(mode: nil).modeLock == nil)
+    }
+
     /// The bubbles open on a quarter ring up and to the right of the
     /// button, the first straight up, the last straight to the right.
     @Test func theFingerPicksTheBubbleItPointsAt() {

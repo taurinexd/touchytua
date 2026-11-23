@@ -110,6 +110,8 @@ do {
 let reapSeconds = env["TOUCHYTUA_REAP_SECONDS"].flatMap(Double.init) ?? 60
 Task {
     await hub.restore(savedSessions)
+    // Restored sessions send no event: their folders are offered too.
+    for session in await hub.sessions.values { desk.note(cwd: session.cwd) }
     while true {
         await hub.reap { InboxInjector.isReachable($0) }
         try? await Task.sleep(nanoseconds: UInt64(reapSeconds * 1e9))

@@ -34,6 +34,16 @@ case "$took" in
   none|kept) echo "FAIL silent connection: $took"; fail=1 ;;
   *) [ "$took" -le 3000 ] && echo "PASS silent connection dropped (${took} ms)" || { echo "FAIL silent connection dropped late (${took} ms)"; fail=1; } ;;
 esac
+# A hook that is gone before its answer arrives must not take the daemon
+# down: Claude Code kills the hook when the request is answered in the
+# terminal, and the daemon then writes to a closed socket.
+echo '{"hook_event_name":"PermissionRequest","session_id":"live","cwd":"/p/live","tool_name":"Bash","tool_input":{"command":"ls"}}' |
+  CLAUDE_CODE_MESSAGING_SOCKET="$HOME_T/live.sock" CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$HOME_T/run/hook.sock" "$H" >/dev/null 2>&1 &
+GONE=$!; sleep 0.5; kill -9 $GONE 2>/dev/null; sleep 0.2
+echo '{"hook_event_name":"PostToolUse","session_id":"live","cwd":"/p/live","tool_name":"Bash","tool_input":{"command":"ls"}}' |
+  CLAUDE_CODE_MESSAGING_SOCKET="$HOME_T/live.sock" CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$HOME_T/run/hook.sock" "$H" >/dev/null 2>&1
+sleep 0.5
+kill -0 $PID 2>/dev/null && echo "PASS daemon alive after answering a hook that left" || { echo "FAIL daemon died answering a hook that left: $(tail -2 "$HOME_T/log")"; fail=1; }
 # Restart: the registry comes back from disk.
 kill $PID; wait $PID 2>/dev/null
 rm -f "$HOME_T/folders.json"

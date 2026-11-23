@@ -110,8 +110,16 @@ actor Gate {
         let record = PairingRecord(macName: "Studio", macKey: Data([1]), endpoints: [lan])
         #expect(record.refreshed(with: ["bonjour:abc", "http://x", "", "ts:"]) == record)
         #expect(record.refreshed(with: []) == record)
-        #expect(record.refreshed(with: [ts, ts, "nonsense"]).endpoints == [ts])
+        #expect(record.refreshed(with: [ts, ts, "nonsense"]).endpoints == [ts, lan])
         #expect(record.refreshed(with: (1...20).map { "lan:10.0.0.\($0):47311" }).endpoints.count == 6)
+    }
+
+    @Test func aKindOfAddressTheMacLeavesOutIsKept() {
+        // Tailscale switched off for a moment at home must not lose the way in from outside.
+        let record = PairingRecord(macName: "Studio", macKey: Data([1]), endpoints: [lan, ts])
+        #expect(record.refreshed(with: ["lan:192.168.1.77:47311"]).endpoints == ["lan:192.168.1.77:47311", ts])
+        #expect(record.refreshed(with: ["ts:other.ts.net:47311"]).endpoints == ["ts:other.ts.net:47311", lan])
+        #expect(record.refreshed(with: [lan, ts]).endpoints == [lan, ts])
     }
 
     // MARK: pairing

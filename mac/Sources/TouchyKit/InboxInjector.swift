@@ -31,6 +31,9 @@ public enum InboxInjector {
             }
         }
         guard connected == 0 else { close(fd); return nil }
+        // A session that closes its inbox mid-write must not kill the caller.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         return fd
     }
 

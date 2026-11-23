@@ -40,6 +40,13 @@ struct TouchytuaApp: App {
                 }
                 #endif
                 .onChange(of: scenePhase, initial: true) { _, phase in
+                    // The window gets its recognizers after the first frame.
+                    if phase == .active {
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            EdgeTouches.deliverAtOnce()
+                        }
+                    }
                     switch phase {
                     case .active: connection.start()
                     case .background: connection.stop()

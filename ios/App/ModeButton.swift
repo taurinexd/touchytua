@@ -120,7 +120,7 @@ struct ModeButton: View {
                     .scaleEffect(open ? (isPicked ? 1.22 : 1) : 0.4)
                     .offset(x: open ? place.right : 0, y: open ? -place.up : 0)
                     .opacity(open ? 1 : 0)
-                    .animation(.spring(duration: 0.32, bounce: 0.35).delay(open ? Double(index) * 0.03 : 0), value: open)
+                    .animation(.spring(duration: 0.16, bounce: 0.3).delay(open ? Double(index) * 0.008 : 0), value: open)
                     .animation(.spring(duration: 0.18), value: picked)
             }
         }
@@ -148,7 +148,7 @@ struct ModeButton: View {
         .shadow(color: .black.opacity(0.6), radius: 12, y: 4)
         .opacity(open ? 1 : 0)
         .offset(y: open ? 0 : 12)
-        .animation(.spring(duration: 0.26), value: open)
+        .animation(.spring(duration: 0.14), value: open)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }

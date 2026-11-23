@@ -58,6 +58,8 @@ public final class ConnectionManager {
     public private(set) var outbox = Outbox()
     /// The earlier conversation of the sessions, as far as it was asked for.
     public private(set) var earlier = Earlier()
+    /// Starting a session on the Mac: where, and what went wrong.
+    public private(set) var launcher = Launcher()
 
     @ObservationIgnored private let store: any SecretStore
     @ObservationIgnored private let deviceName: String
@@ -160,6 +162,7 @@ public final class ConnectionManager {
         notice = nil
         outbox = Outbox()
         earlier = Earlier()
+        launcher = Launcher()
         status = .unpaired
     }
 
@@ -186,6 +189,21 @@ public final class ConnectionManager {
               let session = state.sessions.first(where: { $0.id == sessionId }),
               let cursor = earlier.ask(session) else { return }
         await link.send(.history(sessionId: sessionId, before: cursor))
+    }
+
+    /// Asks the Mac where a session can be started.
+    public func loadFolders() async {
+        guard let link, case .connected = status else { return }
+        launcher.asked()
+        await link.send(.folders)
+    }
+
+    /// Starts a session on the Mac. It shows up in the list by itself,
+    /// once its first hook reaches the daemon.
+    public func startSession(folder: String, prompt: String, name: String?) async {
+        guard let link, case .connected = status else { return }
+        launcher.starting()
+        await link.send(.start(folder: folder, prompt: prompt, name: name))
     }
 
     /// Leaving a session lets go of its earlier conversation.
@@ -331,6 +349,7 @@ public final class ConnectionManager {
                 }
                 await link.close()
                 earlier.interrupted()
+                launcher.interrupted()
                 guard !Task.isCancelled else { return }
                 self.link = nil
             }
@@ -350,6 +369,10 @@ public final class ConnectionManager {
             earlier.received(sessionId: sessionId, items: items, next: next)
             return
         }
+        if case let .folders(items, enabled) = message {
+            launcher.received(folders: items, enabled: enabled)
+            return
+        }
         guard case let .error(code) = message else {
             state.apply(message)
             outbox.settle(with: state.sessions)
@@ -361,11 +384,14 @@ public final class ConnectionManager {
         case "inject_failed", "unknown_session":
             notice = Self.promptNotDeliveredMessage
             outbox.dropLast()
-        case "history_unavailable", "unsupported_message":
-            // The second is a Mac whose plugin is older than this app.
+        case "history_unavailable":
             earlier.failed()
+        case "unsupported_message":
+            // A Mac whose plugin is older than this app: it was asked
+            // either for the folders or for a session's history.
+            if !launcher.failed(code: code) { earlier.failed() }
         default:
-            break
+            _ = launcher.failed(code: code)
         }
     }
 }

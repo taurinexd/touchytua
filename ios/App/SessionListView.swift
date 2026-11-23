@@ -6,6 +6,7 @@ struct SessionListView: View {
     @Environment(ConnectionManager.self) private var connection
     @Binding var path: [String]
     @State private var showingSettings = false
+    @State private var showingNew = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +21,7 @@ struct SessionListView: View {
         .background(Theme.background)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $showingNew) { NewSessionView { path.append($0) } }
     }
 
     private var header: some View {
@@ -41,6 +43,17 @@ struct SessionListView: View {
             }
             Spacer()
             Button {
+                showingNew = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.green)
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(!connected)
+            .opacity(connected ? 1 : 0.35)
+            .accessibilityLabel("New session")
+            Button {
                 showingSettings = true
             } label: {
                 Image(systemName: "gearshape")
@@ -52,6 +65,11 @@ struct SessionListView: View {
         }
         .padding(.leading, 18)
         .padding(.trailing, 6)
+    }
+
+    private var connected: Bool {
+        if case .connected = connection.status { return true }
+        return false
     }
 
     private func figure(_ name: String, _ value: String, _ color: Color) -> some View {

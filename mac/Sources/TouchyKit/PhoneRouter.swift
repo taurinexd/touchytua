@@ -4,10 +4,20 @@ import Foundation
 public struct PhoneRouter: Sendable {
     let hub: Hub
     let inject: @Sendable (InboxCredentials, String) throws -> Void
+    /// Where the phone may start a session, and whether it may at all.
+    let folders: @Sendable () -> (items: [StartFolder], enabled: Bool)
+    /// Starts a session; returns why not when it does not.
+    let start: @Sendable (_ folder: String, _ prompt: String, _ name: String?) -> SessionLaunch.Refusal?
 
-    public init(hub: Hub, inject: @escaping @Sendable (InboxCredentials, String) throws -> Void) {
+    public init(
+        hub: Hub, inject: @escaping @Sendable (InboxCredentials, String) throws -> Void,
+        folders: @escaping @Sendable () -> (items: [StartFolder], enabled: Bool) = { ([], false) },
+        start: @escaping @Sendable (String, String, String?) -> SessionLaunch.Refusal? = { _, _, _ in .disabled }
+    ) {
         self.hub = hub
         self.inject = inject
+        self.folders = folders
+        self.start = start
     }
 
     public func snapshot() async -> MacToPhone {
@@ -55,6 +65,12 @@ public struct PhoneRouter: Sendable {
                   let page = TranscriptHistory.page(path: path, before: before, roundStart: session.round?.startedAt)
             else { return [.error(code: "history_unavailable")] }
             return [.history(sessionId: sessionId, items: page.items, next: page.next)]
+        case .folders:
+            let (items, enabled) = folders()
+            return [.folders(items: items, enabled: enabled)]
+        case let .start(folder, prompt, name):
+            // The new session announces itself through its own hooks.
+            return start(folder, prompt, name).map { [.error(code: $0.rawValue)] } ?? []
         }
     }
 }

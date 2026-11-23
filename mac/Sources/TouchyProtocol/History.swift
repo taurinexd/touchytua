@@ -24,3 +24,17 @@ public struct HistoryItem: Codable, Equatable, Sendable, Identifiable {
         self.at = at
     }
 }
+
+/// A folder on the Mac where a session can be started from the phone.
+public struct StartFolder: Codable, Equatable, Sendable, Identifiable {
+    public let path: String
+    /// The folder's own name: what a session there is called by default.
+    public let name: String
+
+    public var id: String { path }
+
+    public init(path: String, name: String) {
+        self.path = path
+        self.name = name
+    }
+}

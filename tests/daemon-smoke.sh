@@ -36,8 +36,11 @@ case "$took" in
 esac
 # Restart: the registry comes back from disk.
 kill $PID; wait $PID 2>/dev/null
+rm -f "$HOME_T/folders.json"
 TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=30 "$D" 2>>"$HOME_T/log" &
 PID=$!; sleep 0.7
+# A restored session sends no event: its folder is offered to the phone all the same.
+/usr/bin/jq -e '.seen|index("/p/live")!=null' "$HOME_T/folders.json" >/dev/null 2>&1 && echo "PASS restored session's folder is offered" || { echo "FAIL folders: $(cat "$HOME_T/folders.json" 2>&1)"; fail=1; }
 send other "$HOME_T/live.sock"; sleep 0.3
 /usr/bin/jq -e 'map(.session.id)|sort==["live","other"]' "$HOME_T/run/sessions.json" >/dev/null && echo "PASS registry restored after restart" || { echo "FAIL restore: $(cat "$HOME_T/run/sessions.json" 2>&1)"; fail=1; }
 exit $fail

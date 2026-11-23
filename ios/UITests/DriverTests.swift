@@ -22,6 +22,7 @@ import XCTest
 ///   back                   tap the navigation bar's back button
 ///   home                   go to the Home Screen
 ///   relaunch               terminate and launch the app
+///   rotate:<landscape|portrait>  turn the device
 final class DriverTests: XCTestCase {
     // Not `testRun`: XCTest already has a property with that name, and the
     // runner would call that instead of this method.
@@ -82,6 +83,8 @@ final class DriverTests: XCTestCase {
             case "relaunch":
                 app.terminate()
                 app.launch()
+            case "rotate":
+                XCUIDevice.shared.orientation = argument == "landscape" ? .landscapeLeft : .portrait
             default:
                 XCTFail("unknown step: \(step)")
             }

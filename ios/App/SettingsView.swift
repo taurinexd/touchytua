@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(ConnectionManager.self) private var connection
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingUnpair = false
+    @State private var scanning = false
     @AppStorage(DictationSettings.holdToSend) private var holdToSend = false
     @AppStorage(DictationSettings.language) private var language = ""
     @State private var languages: [DictationLanguage.Name] = []
@@ -27,17 +28,47 @@ struct SettingsView: View {
             .padding(.top, 14)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    section("Mac") {
-                        row("Name", connection.macName ?? "—")
-                        divider
-                        row("Connection", statusText)
+                    VStack(alignment: .leading, spacing: 10) {
+                        section(connection.macs.count > 1 ? "Macs" : "Mac") {
+                            ForEach(connection.macs) { mac in
+                                if mac.id != connection.macs.first?.id { divider }
+                                macRow(mac)
+                            }
+                        }
+                        if connection.macs.count > 1 {
+                            Text("Tap a Mac to see its sessions.")
+                                .font(Theme.body(13))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 10) {
-                        Button("Unpair") { confirmingUnpair = true }
-                            .buttonStyle(ActionButtonStyle(color: Theme.red, filled: false))
-                        Text("To pair again, run /pair in Claude Code on your Mac.")
+                        Button("Add a Mac") {
+                            connection.clearPairingProblem()
+                            scanning = true
+                        }
+                        .buttonStyle(ActionButtonStyle(color: Theme.green, filled: false))
+                        .disabled(connection.macBeingAdded != nil)
+                        if let name = connection.macBeingAdded {
+                            HStack(spacing: 10) {
+                                ProgressView().controlSize(.small)
+                                Text("Connecting to \(name)…")
+                                    .font(Theme.body(13))
+                                    .foregroundStyle(Theme.textSecondary)
+                            }
+                        }
+                        if let problem = connection.pairingProblem {
+                            Text(problem)
+                                .font(Theme.body(13))
+                                .foregroundStyle(Theme.red)
+                        }
+                        Text("Run /pair in Claude Code on the Mac to add, then scan the code it shows.")
                             .font(Theme.body(13))
                             .foregroundStyle(Theme.textTertiary)
+                        Button(connection.macs.count > 1 ? "Unpair \(connection.macName ?? "this Mac")" : "Unpair") {
+                            confirmingUnpair = true
+                        }
+                        .buttonStyle(ActionButtonStyle(color: Theme.red, filled: false))
+                        .padding(.top, 6)
                     }
                     VStack(alignment: .leading, spacing: 10) {
                         section("Dictation") {
@@ -88,10 +119,14 @@ struct SettingsView: View {
             let device = await SystemSpeechEngine.supportedLocale(equivalentTo: DictationSettings.deviceLocale)
             automatic = DictationLanguage.names(for: [device].compactMap { $0 }).first?.name
         }
-        .confirmationDialog("Unpair this Mac?", isPresented: $confirmingUnpair, titleVisibility: .visible) {
+        .sheet(isPresented: $scanning) { ScannerSheet() }
+        .confirmationDialog(
+            "Unpair \(connection.macName ?? "this Mac")?", isPresented: $confirmingUnpair, titleVisibility: .visible
+        ) {
             Button("Unpair", role: .destructive) {
                 connection.unpair()
-                dismiss()
+                // With no Mac left the pairing screen takes over.
+                if connection.macs.isEmpty { dismiss() }
             }
         }
     }
@@ -132,6 +167,39 @@ struct SettingsView: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: 50)
+    }
+
+    /// The Mac in use says how it is connected; the others are a tap away.
+    private func macRow(_ mac: PairedMac) -> some View {
+        let inUse = mac.id == connection.macInUse
+        return Button {
+            connection.use(mac.id)
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.green)
+                    .opacity(inUse ? 1 : 0)
+                Text(mac.name)
+                    .font(Theme.body(16))
+                    .foregroundStyle(Theme.text)
+                    .multilineTextAlignment(.leading)
+                Spacer()
+                if inUse {
+                    // Hung up for the time another Mac is being added.
+                    Text(connection.macBeingAdded == nil ? statusText : "Not connected")
+                        .font(Theme.body(16))
+                        .foregroundStyle(Theme.textSecondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(inUse ? "\(mac.name), in use, \(statusText)" : mac.name)
+        .accessibilityHint(inUse ? "" : "Shows this Mac's sessions")
     }
 
     private var divider: some View {

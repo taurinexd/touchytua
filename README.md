@@ -15,7 +15,7 @@ This repository holds both sides:
 /pair
 ```
 
-Scan the QR code with the touchytua iOS app (coming soon on TestFlight). To use it away from home, install Tailscale on the Mac and the iPhone.
+Scan the QR code with the touchytua iOS app (coming soon on TestFlight). To use it away from home, install Tailscale on the Mac and the iPhone. With more than one Mac, do the same on each and add it from the app's settings: the phone shows one Mac at a time and moves between them there.
 
 ## How it works
 - Plugin hooks forward session events to a local daemon (`~/.touchytua/`), which holds permission requests until the phone or the terminal answers. The first answer wins, so touchytua coexists with other approval tools.

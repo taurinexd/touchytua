@@ -50,14 +50,26 @@ public struct PairingRecord: Codable, Equatable, Sendable {
     static let mostAddresses = 6
 }
 
+/// A paired Mac as a list shows it.
+public struct PairedMac: Identifiable, Equatable, Sendable {
+    /// The Mac's public key: two Macs may carry the same name.
+    public let id: Data
+    public let name: String
+
+    public init(id: Data, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
 /// Where the phone keeps its key and its pairings: the Keychain in the app,
 /// a file in the command-line simulator.
 public protocol SecretStore: Sendable {
     /// The phone's static private key, created on first use.
     func phoneKey() throws -> Curve25519.KeyAgreement.PrivateKey
-    /// Most recently paired first.
+    /// Most recently saved first: the first is the Mac in use.
     func pairings() -> [PairingRecord]
-    /// Adds a pairing, replacing an earlier one with the same Mac.
+    /// Puts a pairing first, replacing an earlier one with the same Mac.
     func save(_ record: PairingRecord)
     func remove(macKey: Data)
 }

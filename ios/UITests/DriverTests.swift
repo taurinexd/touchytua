@@ -11,6 +11,7 @@ import XCTest
 ///   shot:<name>            save a screenshot as <name>.png in SHOT_DIR
 ///   tap:<text>             tap the first element whose label contains <text>
 ///   swipeRight:<text> / swipeLeft:<text>
+///   tapExact:<text>        tap the button whose label is exactly that (`tap` takes any that contains it)
 ///   hold:<seconds>,<text>  press and hold that element, then let go
 ///   holdAway:<seconds>,<text>  the same, but slide the finger away before letting go
 ///   holdDrag:<seconds>,<dx>,<dy>,<stay>,<text>  hold, slide <dx> points right and <dy> down (negative: up), stay <stay> seconds, let go
@@ -42,6 +43,12 @@ final class DriverTests: XCTestCase {
             case "tap":
                 let target = try find(argument, in: app)
                 print("DRIVER tap \(argument): \(target.elementType.rawValue) \(target.frame)")
+                target.tap()
+            case "tapExact":
+                let target = app.buttons.matching(NSPredicate(format: "label ==[c] %@", argument)).firstMatch
+                guard target.waitForExistence(timeout: 15) else {
+                    throw XCTSkip("no button labelled exactly \(argument)").asFailure()
+                }
                 target.tap()
             case "swipeRight":
                 try find(argument, in: app).swipeRight()

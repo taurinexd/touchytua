@@ -5,6 +5,12 @@ import TouchyKit
 // an exclusive lock: a second copy exits 0 so `--ensure` style launches are
 // harmless.
 
+// A write to something that closed must fail with EPIPE, never end the
+// daemon: every socket carries SO_NOSIGPIPE, this covers whatever does not.
+// A handler, not SIG_IGN: handlers go back to the default in the sessions
+// started from here, an ignored signal would be inherited by them.
+signal(SIGPIPE) { _ in }
+
 let env = ProcessInfo.processInfo.environment
 let home = env["TOUCHYTUA_HOME"] ?? (NSHomeDirectory() + "/.touchytua")
 let runDir = home + "/run"

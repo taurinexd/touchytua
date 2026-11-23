@@ -20,6 +20,10 @@ public enum InboxInjector {
     private static func connectedSocket(_ path: String) -> Int32? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
+        // A session that closes its inbox mid-write must not kill the caller.
+        // Before connecting: once the other side has left it cannot be set.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let bytes = path.utf8CString
@@ -31,9 +35,6 @@ public enum InboxInjector {
             }
         }
         guard connected == 0 else { close(fd); return nil }
-        // A session that closes its inbox mid-write must not kill the caller.
-        var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         return fd
     }
 

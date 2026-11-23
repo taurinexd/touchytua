@@ -49,11 +49,14 @@ struct ModeButton: View {
     /// takes the touch away without ending the gesture.
     @GestureState private var touching = false
 
-    /// A hold shorter than this is a tap.
-    private static let holdToOpen = 0.28
+    /// How long the finger rests before the ring opens.
+    private static let holdToOpen = 0.14
+    /// A touch that ends on no bubble sooner than this was a tap, even if
+    /// the ring had begun to open.
+    private static let longestTap = 0.3
     /// How far from the button the bubbles sit, and how large they are.
-    private static let radius: CGFloat = 124
-    private static let bubble: CGFloat = 44
+    private static let radius: CGFloat = 152
+    private static let bubble: CGFloat = 54
 
     var body: some View {
         face
@@ -106,7 +109,7 @@ struct ModeButton: View {
                 let place = PermissionMode.ringPlace(index, radius: Self.radius, count: options.count)
                 let isPicked = picked == index
                 Image(systemName: option.symbol)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(isPicked ? Color.black : option.color)
                     .frame(width: Self.bubble, height: Self.bubble)
                     .background(isPicked ? option.color : Theme.surfaceRaised, in: Circle())
@@ -114,7 +117,7 @@ struct ModeButton: View {
                         Circle().strokeBorder(option.color.opacity(option == mode ? 1 : 0.45), lineWidth: option == mode ? 2 : 1)
                     }
                     .shadow(color: isPicked ? option.color.opacity(0.6) : .black.opacity(0.6), radius: isPicked ? 12 : 8)
-                    .scaleEffect(open ? (isPicked ? 1.3 : 1) : 0.4)
+                    .scaleEffect(open ? (isPicked ? 1.22 : 1) : 0.4)
                     .offset(x: open ? place.right : 0, y: open ? -place.up : 0)
                     .opacity(open ? 1 : 0)
                     .animation(.spring(duration: 0.32, bounce: 0.35).delay(open ? Double(index) * 0.03 : 0), value: open)
@@ -184,9 +187,9 @@ struct ModeButton: View {
         open = false
         picked = nil
         guard !cancelled else { return }
-        if wasOpen {
-            if let slot { choose(options[slot]) }
-        } else if Date.now.timeIntervalSince(since) < Self.holdToOpen {
+        if let slot, wasOpen {
+            choose(options[slot])
+        } else if Date.now.timeIntervalSince(since) < Self.longestTap {
             choose(afterTap)
         }
     }

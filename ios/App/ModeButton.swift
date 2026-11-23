@@ -25,10 +25,15 @@ extension PermissionMode {
 }
 
 /// The session's permission mode, to the left of the prompt: what
-/// Shift+Tab is in the terminal. A tap moves to the next mode; held, it
-/// opens the four of them, and the finger slides onto the one to take.
+/// Shift+Tab is in the terminal. A tap moves to the next mode. Held, a
+/// ring of bubbles opens up and to the right of it, one per mode, and
+/// the finger slides onto the one to take.
 struct ModeButton: View {
     let mode: PermissionMode
+    /// The modes to choose from, top to bottom.
+    let options: [PermissionMode]
+    /// The mode a tap moves to.
+    let afterTap: PermissionMode
     /// The mode shown was chosen here and Claude Code has not taken it yet.
     let pending: Bool
     let enabled: Bool
@@ -37,7 +42,7 @@ struct ModeButton: View {
     /// When the finger went down.
     @State private var pressedAt: Date?
     @State private var open = false
-    /// The slot under the finger, counted from the one nearest the button.
+    /// The bubble the finger points at.
     @State private var picked: Int?
     @State private var opener: Task<Void, Never>?
     /// True while the finger is down: the system resets it even when it
@@ -46,9 +51,9 @@ struct ModeButton: View {
 
     /// A hold shorter than this is a tap.
     private static let holdToOpen = 0.28
-    private static let slotHeight: CGFloat = 52
-    /// Top to bottom, in the order of the cycle.
-    private static let options = PermissionMode.cycle
+    /// How far from the button the bubbles sit, and how large they are.
+    private static let radius: CGFloat = 124
+    private static let bubble: CGFloat = 44
 
     var body: some View {
         face
@@ -62,11 +67,12 @@ struct ModeButton: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel("Permission mode: \(mode.label)")
             .accessibilityHint("Tap for the next mode, or hold to pick one")
-            .accessibilityAction { choose(mode.next) }
+            .accessibilityAction { choose(afterTap) }
             // The menu is always in the view and only fades: swapping
             // views under a finger would cancel the gesture.
+            .overlay { ring }
             .overlay(alignment: .bottomLeading) {
-                menu.offset(y: -(42 + Self.slotHeight * 0.6 - 21))
+                caption.offset(y: -(Self.radius + Self.bubble / 2 + 30))
             }
     }
 
@@ -86,48 +92,60 @@ struct ModeButton: View {
             .contentShape(Circle())
     }
 
-    private var menu: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(Self.options.enumerated()), id: \.element.id) { index, option in
-                let isPicked = picked == Self.options.count - 1 - index
-                HStack(spacing: 12) {
-                    Image(systemName: option.symbol)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(option.color)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(option.label)
-                            .font(Theme.display(15, .bold))
-                            .foregroundStyle(Theme.text)
-                        Text(option.summary)
-                            .font(Theme.body(12))
-                            .foregroundStyle(Theme.textTertiary)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
-                    if option == mode {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .frame(width: 252, height: Self.slotHeight)
-                .background(isPicked ? option.color.opacity(0.18) : .clear)
-                // Each row arrives a moment after the one below it.
+    /// The bubbles on their quarter ring, and the arc they sit on. They
+    /// start under the button and fly out to their places.
+    private var ring: some View {
+        ZStack {
+            Circle()
+                .trim(from: 0.75, to: 1)
+                .stroke(Theme.borderStrong, style: StrokeStyle(lineWidth: 1, dash: [2, 5]))
+                .frame(width: Self.radius * 2, height: Self.radius * 2)
                 .opacity(open ? 1 : 0)
-                .offset(y: open ? 0 : 10)
-                .animation(.spring(duration: 0.28).delay(open ? Double(Self.options.count - 1 - index) * 0.035 : 0), value: open)
+                .scaleEffect(open ? 1 : 0.3)
+            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                let place = PermissionMode.ringPlace(index, radius: Self.radius, count: options.count)
+                let isPicked = picked == index
+                Image(systemName: option.symbol)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(isPicked ? Color.black : option.color)
+                    .frame(width: Self.bubble, height: Self.bubble)
+                    .background(isPicked ? option.color : Theme.surfaceRaised, in: Circle())
+                    .overlay {
+                        Circle().strokeBorder(option.color.opacity(option == mode ? 1 : 0.45), lineWidth: option == mode ? 2 : 1)
+                    }
+                    .shadow(color: isPicked ? option.color.opacity(0.6) : .black.opacity(0.6), radius: isPicked ? 12 : 8)
+                    .scaleEffect(open ? (isPicked ? 1.3 : 1) : 0.4)
+                    .offset(x: open ? place.right : 0, y: open ? -place.up : 0)
+                    .opacity(open ? 1 : 0)
+                    .animation(.spring(duration: 0.32, bounce: 0.35).delay(open ? Double(index) * 0.03 : 0), value: open)
+                    .animation(.spring(duration: 0.18), value: picked)
             }
         }
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
-        .overlay { RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.borderStrong, lineWidth: 1) }
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .shadow(color: .black.opacity(0.6), radius: 16, y: 6)
-        .scaleEffect(open ? 1 : 0.6, anchor: .bottomLeading)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// The name of the mode under the finger, above the ring: the finger
+    /// hides the bubble it is on.
+    private var caption: some View {
+        let shown = picked.map { options[$0] } ?? mode
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(shown.label)
+                .font(Theme.display(16, .bold))
+                .foregroundStyle(picked == nil ? Theme.textSecondary : shown.color)
+            Text(picked == nil ? "Slide onto a mode" : shown.summary)
+                .font(Theme.body(13))
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .fixedSize()
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: 14))
+        .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.borderStrong, lineWidth: 1) }
+        .shadow(color: .black.opacity(0.6), radius: 12, y: 4)
         .opacity(open ? 1 : 0)
-        .animation(.spring(duration: 0.26, bounce: 0.25), value: open)
-        .animation(.easeOut(duration: 0.1), value: picked)
+        .offset(y: open ? 0 : 12)
+        .animation(.spring(duration: 0.26), value: open)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -146,10 +164,9 @@ struct ModeButton: View {
                     }
                 }
                 guard open else { return }
-                let slot = PermissionMode.slot(
-                    lifted: -finger.translation.height, slotHeight: Self.slotHeight, count: Self.options.count)
-                // Off to the side of the menu is off the menu.
-                let over = abs(finger.translation.width) < 252 ? slot : nil
+                let over = PermissionMode.ringSlot(
+                    right: finger.translation.width, up: -finger.translation.height,
+                    radius: Self.radius, count: options.count)
                 if over != picked {
                     picked = over
                     if over != nil { UISelectionFeedbackGenerator().selectionChanged() }
@@ -168,9 +185,9 @@ struct ModeButton: View {
         picked = nil
         guard !cancelled else { return }
         if wasOpen {
-            if let slot { choose(Self.options[Self.options.count - 1 - slot]) }
+            if let slot { choose(options[slot]) }
         } else if Date.now.timeIntervalSince(since) < Self.holdToOpen {
-            choose(mode.next)
+            choose(afterTap)
         }
     }
 }

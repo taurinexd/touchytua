@@ -27,6 +27,9 @@ struct PromptBar: View {
     var project: String?
     /// The session's permission mode, as the button shows it.
     var mode = PermissionMode(wire: nil)
+    /// The modes to choose from, and the one a tap moves to.
+    var modes = PermissionMode.cycle
+    var modeAfterTap = PermissionMode(wire: nil)
     /// One line about a mode chosen here that Claude Code has not taken yet.
     var modeNote: String?
     @State private var text = ""
@@ -77,7 +80,10 @@ struct PromptBar: View {
                     .monospacedDigit()
             }
             HStack(alignment: .bottom, spacing: 10) {
-                ModeButton(mode: mode, pending: modeNote != nil, enabled: connected && !dictating) { chosen in
+                ModeButton(
+                    mode: mode, options: modes, afterTap: modeAfterTap, pending: modeNote != nil,
+                    enabled: connected && !dictating
+                ) { chosen in
                     Task { await connection.setMode(sessionId: sessionId, mode: chosen) }
                 }
                 // Its menu opens over the field beside it.

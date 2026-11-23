@@ -13,8 +13,10 @@ public struct PermissionMode: Equatable, Sendable, Identifiable {
         self.wire = wire ?? "default"
     }
 
-    /// The modes Shift+Tab goes through in the terminal, in its order.
-    public static let cycle = ["default", "acceptEdits", "plan", "auto"].map(PermissionMode.init(wire:))
+    /// The modes Shift+Tab goes through in the terminal, in its order:
+    /// bypass before auto.
+    public static let cycle = ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
+        .map(PermissionMode.init(wire:))
 
     public var label: String {
         switch wire {
@@ -35,29 +37,57 @@ public struct PermissionMode: Equatable, Sendable, Identifiable {
         case "acceptEdits": "Edits files without asking"
         case "plan": "Plans first, changes nothing"
         case "auto": "Decides by itself what is safe"
+        case "bypassPermissions": "Never asks"
+        case "dontAsk": "Refuses what it would ask for"
         default: ""
         }
     }
 
-    /// The mode a tap moves to.
-    public var next: PermissionMode {
-        guard let index = Self.cycle.firstIndex(of: self) else { return Self.cycle[0] }
-        return Self.cycle[(index + 1) % Self.cycle.count]
+    /// Where bubble `index` of `count` sits on the quarter ring that opens
+    /// up and to the right of the button: the first straight up, the last
+    /// straight to the right.
+    public static func ringPlace(_ index: Int, radius: Double, count: Int) -> (right: Double, up: Double) {
+        let angle = ringAngle(index, count: count)
+        return (radius * cos(angle), radius * sin(angle))
     }
 
-    /// Which of the slots stacked above the button the finger is over,
-    /// counted from the nearest: `lifted` is how far up it has moved.
-    /// Nil over the button itself, or past the last slot.
-    public static func slot(lifted: Double, slotHeight: Double, count: Int) -> Int? {
-        // The first slot starts a little above the button's middle.
-        let start = slotHeight * 0.6
-        guard lifted >= start else { return nil }
-        let index = Int((lifted - start) / slotHeight)
-        return index < count ? index : nil
+    /// Which bubble the finger points at, from how far it has moved from
+    /// the button. Nil close to the button, far beyond the ring, or off
+    /// to a side the ring does not open on.
+    public static func ringSlot(right: Double, up: Double, radius: Double, count: Int) -> Int? {
+        let distance = (right * right + up * up).squareRoot()
+        guard count > 0, distance >= radius * 0.45, distance <= radius * 1.6 else { return nil }
+        let angle = atan2(up, right)
+        // A little past either end of the arc still counts.
+        let slack = Double.pi / 10
+        guard angle >= -slack, angle <= .pi / 2 + slack else { return nil }
+        guard count > 1 else { return 0 }
+        let step = (Double.pi / 2) / Double(count - 1)
+        return min(count - 1, max(0, Int(((.pi / 2 - angle) / step).rounded())))
+    }
+
+    private static func ringAngle(_ index: Int, count: Int) -> Double {
+        count > 1 ? .pi / 2 - Double(index) * (.pi / 2) / Double(count - 1) : .pi / 4
     }
 }
 
 extension Session {
+    /// The modes to choose from: the cycle, and always the mode the
+    /// session is in, so that it can be chosen back.
+    public var offeredModes: [PermissionMode] {
+        var offered = PermissionMode.cycle
+        let current = PermissionMode(wire: mode)
+        if !offered.contains(current) { offered.append(current) }
+        return offered
+    }
+
+    /// The mode a tap moves to: the one after the mode shown.
+    public var modeAfterTap: PermissionMode {
+        let offered = offeredModes
+        guard let index = offered.firstIndex(of: shownMode) else { return offered[0] }
+        return offered[(index + 1) % offered.count]
+    }
+
     /// The mode the button shows: the one chosen, while it is on its way.
     public var shownMode: PermissionMode {
         PermissionMode(wire: nextMode ?? mode)

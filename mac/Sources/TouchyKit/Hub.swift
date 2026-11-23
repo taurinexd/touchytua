@@ -39,9 +39,11 @@ public actor Hub {
     }
 
     private var modeChanges: [String: ModeChange] = [:]
-    /// The modes of the Shift+Tab cycle. Not the ones that stop asking
-    /// altogether: those are chosen at the Mac.
-    public static let modes = ["default", "acceptEdits", "plan", "auto"]
+    /// The modes of the Shift+Tab cycle, in the terminal's order. Bypass
+    /// is among them for every session: Claude Code takes it only where
+    /// the session was started with it within reach, and a mode it does
+    /// not take is given up.
+    public static let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
     /// How long after an approval the old mode may still be reported.
     static let modeGrace: Double = 3
     private let clock: @Sendable () -> Date
@@ -193,7 +195,9 @@ public actor Hub {
     /// hook only in the answer to a permission request, so the change
     /// waits for the session's next one. False when it cannot be chosen.
     public func setMode(sessionId: String, mode: String) -> Bool {
-        guard var session = sessions[sessionId], Self.modes.contains(mode) else { return false }
+        // The mode it is in can always be chosen: that takes a choice back.
+        guard var session = sessions[sessionId],
+              Self.modes.contains(mode) || session.mode == mode else { return false }
         if session.mode == mode {
             modeChanges[sessionId] = nil
             session.nextMode = nil

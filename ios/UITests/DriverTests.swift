@@ -13,7 +13,7 @@ import XCTest
 ///   swipeRight:<text> / swipeLeft:<text>
 ///   hold:<seconds>,<text>  press and hold that element, then let go
 ///   holdAway:<seconds>,<text>  the same, but slide the finger away before letting go
-///   holdDrag:<seconds>,<dy>,<stay>,<text>  hold, slide <dy> points down (negative: up), stay <stay> seconds, let go
+///   holdDrag:<seconds>,<dx>,<dy>,<stay>,<text>  hold, slide <dx> points right and <dy> down (negative: up), stay <stay> seconds, let go
 ///   scrollDown / scrollUp  drag the content one screenful
 ///   type:<text>            type into the focused field
 ///   waitFor:<text>         wait up to 60 s for an element to appear
@@ -56,13 +56,13 @@ final class DriverTests: XCTestCase {
                     target.press(forDuration: seconds, thenDragTo: app.navigationBars.firstMatch)
                 }
             case "holdDrag":
-                let pieces = argument.split(separator: ",", maxSplits: 3).map(String.init)
-                let target = try find(pieces.count > 3 ? pieces[3] : "", in: app)
+                let pieces = argument.split(separator: ",", maxSplits: 4).map(String.init)
+                let number = { (index: Int) in Double(pieces.count > index ? pieces[index] : "") ?? 0 }
+                let target = try find(pieces.count > 4 ? pieces[4] : "", in: app)
                 let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-                let end = start.withOffset(CGVector(dx: 0, dy: Double(pieces.count > 1 ? pieces[1] : "") ?? 0))
                 start.press(
-                    forDuration: Double(pieces[0]) ?? 1, thenDragTo: end, withVelocity: .slow,
-                    thenHoldForDuration: Double(pieces.count > 2 ? pieces[2] : "") ?? 0)
+                    forDuration: Double(pieces[0]) ?? 1, thenDragTo: start.withOffset(CGVector(dx: number(1), dy: number(2))),
+                    withVelocity: .slow, thenHoldForDuration: number(3))
             case "scrollDown":
                 app.swipeUp()
             case "scrollUp":

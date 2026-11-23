@@ -123,10 +123,11 @@ public enum SessionLaunch {
 
     /// The `claude` arguments. No permission mode is named: the session
     /// starts in the one any session on this Mac starts in, and the phone
-    /// can change it afterwards. After `--` the prompt is words, however
-    /// it begins.
+    /// can change it afterwards, to bypass too: the flag puts that mode
+    /// within reach and grants nothing by itself. After `--` the prompt
+    /// is words, however it begins.
     public static func arguments(for request: Request) -> [String] {
-        var arguments = ["--bg"]
+        var arguments = ["--bg", "--allow-dangerously-skip-permissions"]
         if let name = request.name { arguments.append("--name=" + name) }
         return arguments + ["--", request.prompt]
     }

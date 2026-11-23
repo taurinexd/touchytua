@@ -114,14 +114,15 @@ import Testing
         #expect(check(name: " -- ") == .success(.init(folder: "/p/shop", prompt: "Fix the cart", name: nil)))
     }
 
-    /// The session starts in the mode any session on this Mac starts in:
-    /// the phone names none. Neither the name nor the prompt can pass for
-    /// an option.
-    @Test func theCommandNamesNoModeAndTakesThePromptAsWords() {
+    /// The session starts in the mode any session on this Mac starts in,
+    /// with bypass within reach so that the phone can choose it later: the
+    /// flag grants nothing by itself. Neither the name nor the prompt can
+    /// pass for an option.
+    @Test func theCommandKeepsBypassWithinReachAndTakesThePromptAsWords() {
         let named = SessionLaunch.arguments(for: .init(folder: "/p/shop", prompt: "--version", name: "cart fix"))
-        #expect(named == ["--bg", "--name=cart fix", "--", "--version"])
+        #expect(named == ["--bg", "--allow-dangerously-skip-permissions", "--name=cart fix", "--", "--version"])
         let bare = SessionLaunch.arguments(for: .init(folder: "/p/shop", prompt: "Fix the cart", name: nil))
-        #expect(bare == ["--bg", "--", "Fix the cart"])
+        #expect(bare == ["--bg", "--allow-dangerously-skip-permissions", "--", "Fix the cart"])
     }
 
     /// Claude Code gives a background session the PATH of whoever started

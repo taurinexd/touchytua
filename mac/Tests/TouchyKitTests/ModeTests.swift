@@ -37,13 +37,23 @@ import Testing
         #expect(session?.nextMode == "plan")
     }
 
-    @Test func onlyTheFourModesOfTheCycleCanBeChosen() async {
+    @Test func onlyTheModesOfTheCycleCanBeChosen() async {
         let hub = Hub()
         _ = await hub.handle(event("UserPromptSubmit", at: 1))
-        #expect(await !hub.setMode(sessionId: "s1", mode: "bypassPermissions"))
         #expect(await !hub.setMode(sessionId: "s1", mode: "dontAsk"))
+        #expect(await !hub.setMode(sessionId: "s1", mode: "somethingElse"))
         #expect(await !hub.setMode(sessionId: "nope", mode: "plan"))
         #expect(await hub.sessions["s1"]?.nextMode == nil)
+    }
+
+    /// Bypass is in the cycle for every session. Claude Code takes it only
+    /// where the session was started with it within reach; elsewhere the
+    /// change is given up like any mode it does not take.
+    @Test func bypassCanBeChosenForAnySession() async {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: 1))
+        #expect(await hub.setMode(sessionId: "s1", mode: "bypassPermissions"))
+        #expect(await hub.sessions["s1"]?.nextMode == "bypassPermissions")
     }
 
     @Test func choosingTheModeItIsAlreadyInChangesNothing() async {
@@ -123,13 +133,25 @@ import Testing
         #expect(json(await hub.handle(event("PreToolUse", at: 10, tool: "Bash"))) == "{}\n")
     }
 
+    /// Whatever the mode, choosing the one the session is in takes back a
+    /// choice that has not gone in yet.
+    @Test func choosingTheCurrentModeCancelsAChangeOnItsWay() async {
+        let hub = Hub()
+        _ = await hub.handle(event("UserPromptSubmit", at: 1, mode: "dontAsk"))
+        _ = await hub.setMode(sessionId: "s1", mode: "auto")
+        #expect(await hub.sessions["s1"]?.nextMode == "auto")
+        #expect(await hub.setMode(sessionId: "s1", mode: "dontAsk"))
+        #expect(await hub.sessions["s1"]?.nextMode == nil)
+        #expect(json(await hub.handle(event("PreToolUse", at: 2, mode: "dontAsk", tool: "Bash"))) == "{}\n")
+    }
+
     @Test func thePhoneAsksForAModeThroughTheRouter() async {
         let hub = Hub()
         _ = await hub.handle(event("UserPromptSubmit", at: 1))
         let router = PhoneRouter(hub: hub) { _, _ in }
         #expect(await router.handle(.mode(sessionId: "s1", mode: "plan")).isEmpty)
         #expect(await hub.sessions["s1"]?.nextMode == "plan")
-        #expect(await router.handle(.mode(sessionId: "s1", mode: "bypassPermissions")) == [.error(code: "mode_refused")])
+        #expect(await router.handle(.mode(sessionId: "s1", mode: "dontAsk")) == [.error(code: "mode_refused")])
     }
 
     @Test func theMessageTravels() throws {

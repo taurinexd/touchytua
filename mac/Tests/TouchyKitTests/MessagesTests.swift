@@ -57,16 +57,42 @@ private let request = PendingRequest(id: "abcd1234", sessionId: "s1", kind: .per
         #expect(try JSONDecoder().decode(MacToPhone.self, from: data) == message)
     }
 
+    @Test func aboutRoundTrip() throws {
+        let message = MacToPhone.about(version: "0.3.13")
+        let data = try JSONEncoder().encode(message)
+        #expect(String(decoding: data, as: UTF8.self).contains(#""t":"about""#))
+        #expect(try JSONDecoder().decode(MacToPhone.self, from: data) == message)
+    }
+
+    @Test func helloIsAnsweredFirstWithTheReleaseTheMacRuns() async {
+        let router = PhoneRouter(hub: Hub(), inject: { _, _ in }, version: "1.2.3")
+        let replies = await router.handle(.hello(deviceName: "iPhone"))
+        #expect(replies.first == .about(version: "1.2.3"))
+        guard case .snapshot = replies.last else {
+            Issue.record("the snapshot comes after the release")
+            return
+        }
+    }
+
+    @Test func releasesCompareByTheirNumbers() {
+        #expect(Release.isOlder("0.3.9", than: "0.3.13"))
+        #expect(Release.isOlder("0.3", than: "0.3.1"))
+        #expect(!Release.isOlder("0.3.13", than: "0.3.13"))
+        #expect(!Release.isOlder("0.4.0", than: "0.3.13"))
+        #expect(Release.isOlder(nil, than: "0.3.13"))
+        #expect(Release.isOlder("soon", than: "0.3.13"))
+    }
+
     @Test func helloIsAnsweredWithWhereTheMacListensNow() async {
         let router = PhoneRouter(hub: Hub(), inject: { _, _ in }, addresses: { ["ts:m.ts.net:47311"] })
         let replies = await router.handle(.hello(deviceName: "iPhone"))
-        #expect(replies.count == 2)
+        #expect(replies.count == 3)
         #expect(replies.last == .addresses(["ts:m.ts.net:47311"]))
     }
 
     @Test func aMacThatKnowsNoAddressSaysNothingAboutThem() async {
         let router = PhoneRouter(hub: Hub()) { _, _ in }
-        #expect(await router.handle(.hello(deviceName: "iPhone")).count == 1)
+        #expect(await router.handle(.hello(deviceName: "iPhone")).count == 2)
     }
 
     @Test func unknownMessageGetsUnsupportedError() async {
@@ -90,7 +116,7 @@ private final class Injected: @unchecked Sendable {
         _ = await hub.handle(HookEnvelope(v: 1, capturedAt: 1, event: ["hook_event_name": .string("SessionStart"), "session_id": .string("s1"), "cwd": .string("/p/app")],
                                           messagingSocket: "/tmp/x.sock", messagingToken: "tok"))
         let router = PhoneRouter(hub: hub) { _, _ in }
-        let out = await router.handle(.hello(deviceName: "iPhone"))
+        let out = await router.handle(.hello(deviceName: "iPhone")).filter { if case .snapshot = $0 { true } else { false } }
         guard case let .snapshot(sessions, pending, _) = out.first else { Issue.record("no snapshot"); return }
         #expect(sessions.map(\.id) == ["s1"])
         #expect(pending.isEmpty)

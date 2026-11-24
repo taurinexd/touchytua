@@ -687,6 +687,66 @@ actor Gate {
         #expect(store.pairings().last == PairingRecord(macName: "Laptop", macKey: laptop.publicKey, endpoints: [ts]))
     }
 
+    // MARK: a Mac left behind
+
+    @Test func aMacOnThisReleaseNeedsNoUpdate() async {
+        let mac = pairedMac(endpoints: [lan])
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+        #expect(manager.macUpdate == nil)
+    }
+
+    @Test func aMacOnAnOlderReleaseIsNamedWithItsVersion() async {
+        var mac = pairedMac(endpoints: [lan])
+        mac.version = "0.0.9"
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+        #expect(manager.macUpdate == MacUpdate(installed: "0.0.9", wanted: Release.plugin))
+    }
+
+    @Test func aMacTooOldToSayItsReleaseNeedsAnUpdate() async {
+        var mac = pairedMac(endpoints: [lan])
+        mac.version = nil
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+        #expect(manager.macUpdate == MacUpdate(installed: nil, wanted: Release.plugin))
+    }
+
+    @Test func theUpdateNoticeSaysWhichReleaseTheMacRuns() {
+        #expect(MacUpdate(installed: "0.3.11", wanted: "0.3.13").explanation(macName: "Studio")
+            == "Studio runs touchytua 0.3.11; this app is made for 0.3.13. Until it is updated, some of what the app shows is missing there.")
+        #expect(MacUpdate(installed: nil, wanted: "0.3.13").explanation(macName: "Studio")
+            .hasPrefix("Studio runs an older touchytua; this app is made for 0.3.13."))
+    }
+
+    @Test func movingToAnotherMacForgetsTheUpdateOfTheFirst() async {
+        var (studio, laptop) = await twoMacs()
+        studio.version = nil
+        network.set(lan, .mac(studio))
+        let manager = manager()
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.macUpdate != nil })
+
+        manager.use(laptop.publicKey)
+
+        #expect(manager.macUpdate == nil)
+        #expect(await eventually { manager.state.sessions.map(\.id) == ["on-laptop"] })
+        #expect(manager.macUpdate == nil)
+    }
+
     // MARK: lifecycle
 
     @Test func stopHangsUpAndStartComesBack() async {

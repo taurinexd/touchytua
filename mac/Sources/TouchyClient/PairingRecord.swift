@@ -50,6 +50,32 @@ public struct PairingRecord: Codable, Equatable, Sendable {
     static let mostAddresses = 6
 }
 
+/// A Mac whose plugin is older than the one this app was built with.
+public struct MacUpdate: Equatable, Sendable {
+    /// What the Mac runs; nil when it is too old to say.
+    public let installed: String?
+    public let wanted: String
+
+    public init(installed: String?, wanted: String) {
+        self.installed = installed
+        self.wanted = wanted
+    }
+
+    /// What is the matter, for the Mac called `macName`.
+    public func explanation(macName: String) -> String {
+        let runs = installed.map { "touchytua \($0)" } ?? "an older touchytua"
+        return "\(macName) runs \(runs); this app is made for \(wanted). Until it is updated, some of what the app shows is missing there."
+    }
+
+    /// What to do about it, on that Mac.
+    public static let steps =
+        "In Claude Code on that Mac: /plugin marketplace update taurinexd, then /plugin update touchytua@taurinexd, then restart Claude Code."
+
+    /// How not to be told again.
+    public static let keepUpdated =
+        "To have updates arrive by themselves, turn on auto-update for taurinexd under Marketplaces in /plugin."
+}
+
 /// A paired Mac as a list shows it.
 public struct PairedMac: Identifiable, Equatable, Sendable {
     /// The Mac's public key: two Macs may carry the same name.

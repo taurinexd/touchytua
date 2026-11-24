@@ -1,4 +1,5 @@
 import Foundation
+import TouchyProtocol
 
 /// Applies the phone's messages to the hub. Transport-free.
 public struct PhoneRouter: Sendable {
@@ -10,13 +11,18 @@ public struct PhoneRouter: Sendable {
     let start: @Sendable (_ folder: String, _ prompt: String, _ name: String?) -> SessionLaunch.Refusal?
     /// Where this Mac listens now; empty when it cannot tell.
     let addresses: @Sendable () -> [String]
+    /// The plugin release to say this Mac runs; nil says nothing, as a Mac
+    /// from before the phone could ask does.
+    let version: String?
 
     public init(
         hub: Hub, inject: @escaping @Sendable (InboxCredentials, String) throws -> Void,
         folders: @escaping @Sendable () -> (items: [StartFolder], enabled: Bool) = { ([], false) },
         start: @escaping @Sendable (String, String, String?) -> SessionLaunch.Refusal? = { _, _, _ in .disabled },
-        addresses: @escaping @Sendable () -> [String] = { [] }
+        addresses: @escaping @Sendable () -> [String] = { [] },
+        version: String? = Release.plugin
     ) {
+        self.version = version
         self.hub = hub
         self.inject = inject
         self.folders = folders
@@ -49,7 +55,10 @@ public struct PhoneRouter: Sendable {
             return [.error(code: "unsupported_message")]
         case .hello:
             let addresses = addresses()
-            return [await snapshot()] + (addresses.isEmpty ? [] : [.addresses(addresses)])
+            // The release first: once the snapshot is there, a phone that
+            // heard none knows the Mac is too old to say.
+            return (version.map { [.about(version: $0)] } ?? []) + [await snapshot()]
+                + (addresses.isEmpty ? [] : [.addresses(addresses)])
         case let .decide(id, allow, text):
             return await hub.decide(requestId: id, allow: allow, message: text) ? [] : [.error(code: "unknown_request")]
         case let .answer(id, answers):

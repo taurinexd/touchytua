@@ -157,11 +157,20 @@ func next(_ link: PhoneLink, within seconds: Double) async -> MacToPhone? {
     try? await within(seconds: seconds) { try await link.next() }
 }
 
+/// The snapshot that answers a hello: the Mac's release comes before it.
+func snapshot(_ link: PhoneLink, within seconds: TimeInterval) async -> MacToPhone? {
+    while let message = await next(link, within: seconds) {
+        if case .about = message { continue }
+        return message
+    }
+    return nil
+}
+
 /// Connects, says hello, prints the snapshot, sends `message`, prints replies for `wait` seconds.
 func session(_ message: PhoneToMac?, wait: TimeInterval) async {
     let link = await connect(paired(), secret: nil)
     await link.send(.hello(deviceName: "touchytua-client"))
-    if let snapshot = await next(link, within: 5) { print(describe(snapshot)) } else { fail("no snapshot") }
+    if let snapshot = await snapshot(link, within: 5) { print(describe(snapshot)) } else { fail("no snapshot") }
     if let message { await link.send(message) }
     // Leave at the deadline even on a quiet link.
     DispatchQueue.global().asyncAfter(deadline: .now() + wait) { exit(0) }
@@ -179,7 +188,7 @@ case "pair":
     // The Mac has accepted: from here on this phone is the paired one.
     store.save(record)
     await link.send(.hello(deviceName: "touchytua-client"))
-    guard let snapshot = await next(link, within: 5) else { fail("no snapshot after pairing") }
+    guard let snapshot = await snapshot(link, within: 5) else { fail("no snapshot after pairing") }
     print("paired with \(payload.macName)")
     print(describe(snapshot))
 case "watch":
@@ -201,7 +210,7 @@ case "raw":
     await link.send(.unknown(args[1]))
     if let reply = await next(link, within: 3) { print(describe(reply)) }
     await link.send(.hello(deviceName: "touchytua-client"))
-    if let snapshot = await next(link, within: 3), case .snapshot = snapshot { print("still connected: snapshot received") }
+    if let snapshot = await snapshot(link, within: 3), case .snapshot = snapshot { print("still connected: snapshot received") }
 default:
     fail("usage: pair <url> | watch [s] | approve|deny <id> | answer <id> \"q=label\" | prompt <sid> \"text\"")
 }

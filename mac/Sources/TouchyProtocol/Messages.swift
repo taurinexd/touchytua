@@ -104,11 +104,14 @@ public enum MacToPhone: Codable, Equatable, Sendable {
     /// the addresses in the QR go stale when the network changes or
     /// Tailscale is set up later.
     case addresses([String])
+    /// Sent before the snapshot in the answer to `hello`: the plugin
+    /// release this Mac runs. A Mac older than 0.3.13 does not say.
+    case about(version: String)
     /// A type this build does not know (a newer plugin): ignored, never fatal.
     case unknown(String)
 
     private enum Keys: String, CodingKey {
-        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next, folders, enabled, endpoints
+        case t, sessions, pending, usage, session, id, request, by, code, sessionId, items, next, folders, enabled, endpoints, version
     }
 
     public init(from decoder: Decoder) throws {
@@ -130,6 +133,7 @@ public enum MacToPhone: Codable, Equatable, Sendable {
         case "folders": self = .folders(items: try c.decode([StartFolder].self, forKey: .folders),
                                         enabled: try c.decode(Bool.self, forKey: .enabled))
         case "addresses": self = .addresses(try c.decode([String].self, forKey: .endpoints))
+        case "about": self = .about(version: try c.decode(String.self, forKey: .version))
         case let t: self = .unknown(t)
         }
     }
@@ -155,6 +159,8 @@ public enum MacToPhone: Codable, Equatable, Sendable {
             try c.encode("folders", forKey: .t); try c.encode(items, forKey: .folders); try c.encode(enabled, forKey: .enabled)
         case let .addresses(endpoints):
             try c.encode("addresses", forKey: .t); try c.encode(endpoints, forKey: .endpoints)
+        case let .about(version):
+            try c.encode("about", forKey: .t); try c.encode(version, forKey: .version)
         }
     }
 }

@@ -108,7 +108,7 @@ struct TaskListView: View {
             .frame(minHeight: 34)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DimPressStyle())
         .disabled(keyboardUp)
         .accessibilityLabel(picture.heading + (picture.inProgress.map { ", \($0)" } ?? ""))
         .accessibilityHint(unfolded ? "Hides the task list" : "Shows the task list")
@@ -181,7 +181,7 @@ struct TaskListView: View {
                 .frame(maxWidth: .infinity, minHeight: footHeight, maxHeight: footHeight, alignment: .leading)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DimPressStyle())
     }
 }
 

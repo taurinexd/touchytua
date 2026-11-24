@@ -64,10 +64,13 @@ struct SessionListView: View {
                 showingNew = true
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Theme.green)
+                    .frame(width: 40, height: 40)
+                    .glassEffect(.regular.interactive(connected), in: Circle())
                     .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
             .disabled(!connected)
             .opacity(connected ? 1 : 0.35)
             .accessibilityLabel("New session")
@@ -75,10 +78,13 @@ struct SessionListView: View {
                 showingSettings = true
             } label: {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 40, height: 40)
+                    .glassEffect(.regular.interactive(), in: Circle())
                     .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Settings")
         }
         .padding(.leading, 18)
@@ -165,7 +171,7 @@ struct SessionListView: View {
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DimPressStyle())
         .accessibilityLabel("\(archived) archived sessions")
         .accessibilityHint("Shows them again")
     }
@@ -193,7 +199,7 @@ struct SessionListView: View {
         } label: {
             SessionRow(session: session)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowPressStyle())
         // No vertical inset: a swipe action is as tall as its row, and
         // has to line up with the card.
         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))

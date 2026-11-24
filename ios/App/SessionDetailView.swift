@@ -257,7 +257,7 @@ struct EarlierView: View {
                         .foregroundStyle(Theme.textSecondary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .overlay { Capsule().strokeBorder(Theme.borderStrong, lineWidth: 1) }
+                        .glassEffect(.regular.interactive(), in: Capsule())
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

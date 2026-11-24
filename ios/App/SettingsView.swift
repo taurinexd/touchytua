@@ -23,6 +23,7 @@ struct SettingsView: View {
                     .font(Theme.display(16, .bold))
                     .foregroundStyle(Theme.green)
                     .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(DimPressStyle())
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -205,7 +206,7 @@ struct SettingsView: View {
             .frame(minHeight: 50)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowPressStyle(radius: 0, shrinks: false))
         .accessibilityLabel(inUse ? "\(mac.name), in use, \(statusText)" : mac.name)
         .accessibilityHint(inUse ? "" : "Shows this Mac's sessions")
     }

@@ -29,6 +29,8 @@ public final class ConnectionManager {
         public var pairingPatience: Duration = .seconds(30)
         /// Pause between two pairing rounds.
         public var pairingRetry: Duration = .seconds(1)
+        /// How long a notice stays on screen before it goes away by itself.
+        public var noticeLifetime: Duration = .seconds(6)
         public var pause: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 
         public init() {}
@@ -83,6 +85,9 @@ public final class ConnectionManager {
     @ObservationIgnored private var epoch = 0
     /// True while `pair` is trying to reach the Mac.
     @ObservationIgnored private var pairing = false
+    /// Counts the notices, so that the timer of an older one leaves a
+    /// newer one alone.
+    @ObservationIgnored private var noticesSaid = 0
     /// The release the Mac said on this link, before its snapshot.
     @ObservationIgnored private var heardRelease: String?
 
@@ -106,6 +111,19 @@ public final class ConnectionManager {
             case .orderedDescending: false
             case .orderedSame: $0.id.lexicographicallyPrecedes($1.id)
             }
+        }
+    }
+
+    /// Puts a notice on screen for a while: it says what just happened,
+    /// and a moment later that is no longer news.
+    private func say(_ text: String) {
+        notice = text
+        noticesSaid += 1
+        let (mine, pause, lifetime) = (noticesSaid, timing.pause, timing.noticeLifetime)
+        Task { [weak self] in
+            try? await pause(lifetime)
+            guard let self, self.noticesSaid == mine else { return }
+            self.notice = nil
         }
     }
 
@@ -274,7 +292,7 @@ public final class ConnectionManager {
         // Known here already: say it without a round trip.
         if let session = state.sessions.first(where: { $0.id == sessionId }), let lock = session.modeLock,
            mode.wire != session.mode {
-            notice = lock
+            say(lock)
             return
         }
         await link.send(.mode(sessionId: sessionId, mode: mode.wire))
@@ -493,12 +511,12 @@ public final class ConnectionManager {
         // `unknown_request` needs nothing: the card was removed on the tap.
         switch code {
         case "inject_failed", "unknown_session":
-            notice = Self.promptNotDeliveredMessage
+            say(Self.promptNotDeliveredMessage)
             outbox.dropLast()
         case "history_unavailable":
             earlier.failed()
         case "mode_needs_mac":
-            notice = "This session never asks for permission, so its mode changes only on your Mac, with Shift+Tab."
+            say("This session never asks for permission, so its mode changes only on your Mac, with Shift+Tab.")
         case "unsupported_message":
             // A Mac whose plugin is older than this app: it was asked
             // either for the folders or for a session's history.

@@ -44,7 +44,9 @@ struct SessionDetailView: View {
             .frame(maxHeight: answering == nil ? nil : 0)
             // Cut to nothing while an answer is typed; otherwise open
             // upwards, where the mode menu rises.
-            .mask { Rectangle().padding(.top, answering == nil ? -500 : 0) }
+            // Downwards too: the circle the held microphone grows into
+            // reaches below the bar.
+            .mask { Rectangle().padding(.top, answering == nil ? -500 : 0).padding(.bottom, answering == nil ? -120 : 0) }
             .opacity(answering == nil ? 1 : 0)
             // Clipping cut the bar's own background off the strip below
             // it, and the text scrolled into view there.

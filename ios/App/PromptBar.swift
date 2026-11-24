@@ -94,7 +94,9 @@ struct PromptBar: View {
                     .foregroundStyle(Theme.text)
                     .lineLimit(1...5)
                     .focused($typing)
-                    .disabled(dictating)
+                    // Disabling the field lowers the keyboard: not while
+                    // a finger holds the microphone above it.
+                    .disabled(dictating && !holdToSend)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .card(glow: phase == .listening ? Theme.green : nil, radius: 20)
@@ -165,8 +167,21 @@ struct PromptBar: View {
             .accessibilityElement()
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(dictating ? "Stop dictation" : "Dictate")
+            // The keyboard has a key with the same name: this tells them apart.
+            .accessibilityIdentifier("prompt-microphone")
         if holdToSend {
             label
+                // Under a finger the button itself cannot be seen: it grows
+                // into a circle that shows around the finger. Always in the
+                // view and only scaled: swapping views under a finger would
+                // cancel the hold.
+                .overlay {
+                    HoldBubble(listening: phase == .listening, level: dictation.level, cancelling: slidAway)
+                        .scaleEffect(heldSince == nil ? 0.3 : 1)
+                        .opacity(heldSince == nil ? 0 : 1)
+                        .allowsHitTesting(false)
+                        .animation(.spring(response: 0.34, dampingFraction: 0.68), value: heldSince == nil)
+                }
                 .gesture(hold, isEnabled: micEnabled)
                 // A touch the system took away (a scroll, a system gesture)
                 // never reaches the gesture's end: treat it as a cancel.
@@ -194,7 +209,9 @@ struct PromptBar: View {
 
     private func start(held: Bool = false) async {
         guard !dictating else { return }
-        typing = false
+        // A held microphone leaves the keyboard where it is: lowering it
+        // moves the button away from under the finger that holds it.
+        if !held { typing = false }
         starting = true
         defer { starting = false }
         let locale = if let locale { locale } else { await resolveLocale() }
@@ -222,7 +239,9 @@ struct PromptBar: View {
 
     /// Hold to talk, release to send, slide away to cancel.
     private var hold: some Gesture {
-        DragGesture(minimumDistance: 0)
+        // Measured on the screen, not on the button: if the bar moves under
+        // a finger that stays still, that is not sliding away.
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .updating($touching) { _, touching, _ in touching = true }
             .onChanged { finger in
                 if heldSince == nil {
@@ -293,6 +312,49 @@ struct MicrophoneLabel: View {
         .glassEffect(.regular.interactive(), in: Capsule())
         .shadow(color: color.opacity(listening ? 0.5 : 0), radius: 8)
         .contentShape(Capsule())
+    }
+}
+
+/// What the microphone becomes while a finger holds it: a filled circle
+/// wide enough to show around the finger, in the colour of what letting go
+/// does. Green sends, red (the finger slid away) discards.
+struct HoldBubble: View {
+    let listening: Bool
+    let level: Float
+    let cancelling: Bool
+
+    static let size: CGFloat = 112
+
+    private var color: Color { cancelling ? Theme.red : Theme.green }
+
+    var body: some View {
+        ZStack {
+            // A halo that swells with the voice.
+            Circle()
+                .fill(color.opacity(0.22))
+                .scaleEffect(1.08 + 0.2 * CGFloat(listening ? level : 0))
+                .animation(.easeOut(duration: 0.12), value: level)
+            Circle().fill(color)
+            // In the upper part: the finger is on the middle.
+            Group {
+                if cancelling {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Color.black)
+                } else if listening {
+                    Waveform(level: level, color: .black)
+                } else {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color.black)
+                }
+            }
+            .frame(height: 26)
+            .offset(y: -30)
+        }
+        .frame(width: Self.size, height: Self.size)
+        .animation(.easeInOut(duration: 0.18), value: cancelling)
+        .accessibilityHidden(true)
     }
 }
 

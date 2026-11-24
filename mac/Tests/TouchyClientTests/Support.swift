@@ -48,6 +48,8 @@ struct FakeMac {
     var desk: LaunchDesk?
     /// Where this Mac says it listens now.
     var addresses: [String] = []
+    /// The plugin release this Mac says it runs; nil for one too old to say.
+    var version: String? = Release.plugin
 
     var publicKey: Data { macStatic.publicKey.rawRepresentation }
 
@@ -56,8 +58,8 @@ struct FakeMac {
         let mac = self
         let router = mac.desk.map { desk in
             PhoneRouter(hub: hub, inject: { _, _ in }, folders: { desk.folders() },
-                        start: { desk.start(folder: $0, prompt: $1, name: $2) })
-        } ?? PhoneRouter(hub: hub, inject: { _, _ in }, addresses: { mac.addresses })
+                        start: { desk.start(folder: $0, prompt: $1, name: $2) }, version: mac.version)
+        } ?? PhoneRouter(hub: hub, inject: { _, _ in }, addresses: { mac.addresses }, version: mac.version)
         Task {
             guard let hello = try? await transport.receive(), !mac.dropsHandshake else {
                 transport.close()

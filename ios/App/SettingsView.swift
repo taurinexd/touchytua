@@ -40,6 +40,14 @@ struct SettingsView: View {
                                 .font(Theme.body(13))
                                 .foregroundStyle(Theme.textTertiary)
                         }
+                        if let update = connection.macUpdate {
+                            Text(update.explanation(macName: connection.macName ?? "Your Mac"))
+                                .font(Theme.body(13))
+                                .foregroundStyle(Theme.yellow)
+                            Text(MacUpdate.steps + " " + MacUpdate.keepUpdated)
+                                .font(Theme.body(13))
+                                .foregroundStyle(Theme.textTertiary)
+                        }
                     }
                     VStack(alignment: .leading, spacing: 10) {
                         Button("Add a Mac") {

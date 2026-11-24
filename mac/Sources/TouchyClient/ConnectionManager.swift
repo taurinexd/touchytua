@@ -57,6 +57,9 @@ public final class ConnectionManager {
     public private(set) var macs: [PairedMac] = []
     /// Which of `macs` the app talks to.
     public private(set) var macInUse: PairedMac.ID?
+    /// Set when the Mac in use runs an older plugin than this app knows:
+    /// some of what the app shows will be missing until it is updated.
+    public private(set) var macUpdate: MacUpdate?
     /// The name of the Mac being paired, while `pair` is trying to reach it.
     public private(set) var macBeingAdded: String?
     /// Why the code just scanned added no Mac, while another stays in use.
@@ -80,6 +83,8 @@ public final class ConnectionManager {
     @ObservationIgnored private var epoch = 0
     /// True while `pair` is trying to reach the Mac.
     @ObservationIgnored private var pairing = false
+    /// The release the Mac said on this link, before its snapshot.
+    @ObservationIgnored private var heardRelease: String?
 
     public init(store: any SecretStore, deviceName: String, timing: Timing = Timing(), dial: @escaping Dial) {
         self.store = store
@@ -106,6 +111,7 @@ public final class ConnectionManager {
 
     /// Nothing of a Mac stays on screen once the app talks to another.
     private func forgetThePicture() {
+        macUpdate = nil
         state = ClientState()
         notice = nil
         outbox = Outbox()
@@ -427,6 +433,7 @@ public final class ConnectionManager {
                 }
                 self.link = link
                 status = .connected(via: Endpoint(endpoint)?.label ?? endpoint)
+                heardRelease = nil
                 await link.send(.hello(deviceName: deviceName))
                 while let message = try? await link.next(), !Task.isCancelled {
                     // A link counts as good once the Mac has actually spoken.
@@ -458,6 +465,16 @@ public final class ConnectionManager {
         if case let .folders(items, enabled) = message {
             launcher.received(folders: items, enabled: enabled)
             return
+        }
+        if case let .about(version) = message {
+            heardRelease = version
+            return
+        }
+        if case .snapshot = message {
+            // The release comes before the snapshot: none by now means a
+            // Mac too old to say.
+            macUpdate = Release.isOlder(heardRelease, than: Release.plugin)
+                ? MacUpdate(installed: heardRelease, wanted: Release.plugin) : nil
         }
         if case let .addresses(addresses) = message {
             // Kept for the next time the Mac has to be found; this link stays.

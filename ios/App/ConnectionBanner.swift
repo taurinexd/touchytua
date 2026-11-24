@@ -5,6 +5,13 @@ import TouchyClient
 struct ConnectionBanner: View {
     @Environment(ConnectionManager.self) private var connection
     @State private var scanning = false
+    /// The update notices sent away, one per Mac and release, so that the
+    /// next release is said again.
+    @AppStorage("updateNoticesDismissed") private var dismissedNotices = ""
+
+    private func noticeKey(_ update: MacUpdate) -> String {
+        (connection.macInUse?.base64EncodedString() ?? "") + ":" + update.wanted
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,6 +22,26 @@ struct ConnectionBanner: View {
                         .font(Theme.body(15))
                         .foregroundStyle(Theme.red)
                     Button("Dismiss") { connection.clearPairingProblem() }
+                        .buttonStyle(ActionButtonStyle(color: Theme.textSecondary, filled: false))
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .card()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+            if let update = connection.macUpdate, !dismissedNotices.contains(noticeKey(update)) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Update touchytua on \(connection.macName ?? "your Mac")")
+                        .font(Theme.display(15, .bold))
+                        .foregroundStyle(Theme.yellow)
+                    Text(update.explanation(macName: connection.macName ?? "Your Mac"))
+                        .font(Theme.body(14))
+                        .foregroundStyle(Theme.textSecondary)
+                    Text(MacUpdate.steps)
+                        .font(Theme.body(14))
+                        .foregroundStyle(Theme.textSecondary)
+                    Button("Dismiss") { dismissedNotices += noticeKey(update) + "\n" }
                         .buttonStyle(ActionButtonStyle(color: Theme.textSecondary, filled: false))
                 }
                 .padding(14)

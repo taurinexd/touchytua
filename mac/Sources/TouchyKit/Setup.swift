@@ -1,10 +1,11 @@
 import CoreImage
 import Foundation
+import TouchyProtocol
 
 /// Helpers for `touchytua pair` / `daemon --ensure`.
 public enum Setup {
     /// The plugin's version, the same as in its manifest.
-    public static let version = "0.3.12"
+    public static let version = Release.plugin
 
     /// Whether a plugin copy of version `shipped` may put its binaries in
     /// place of the installed ones. A session started before an update

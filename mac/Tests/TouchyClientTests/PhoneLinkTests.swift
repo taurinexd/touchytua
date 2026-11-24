@@ -17,6 +17,7 @@ import TouchyProtocol
         let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: mac.publicKey, pairingSecret: secret)
         #expect(try await link.open() == Handshake.protocolVersion)
         await link.send(.hello(deviceName: "iPhone"))
+        #expect(try await link.next() == .about(version: Release.plugin))
         #expect(try await link.next() == .snapshot(sessions: [], pending: [], usage: nil))
     }
 
@@ -28,6 +29,7 @@ import TouchyProtocol
         let link = PhoneLink(transport: phoneEnd, phoneKey: phoneKey, macKey: mac.publicKey, pairingSecret: nil)
         _ = try await link.open()
         await link.send(.hello(deviceName: "iPhone"))
+        _ = try await link.next()
         guard case .snapshot = try await link.next() else { Issue.record("no snapshot"); return }
     }
 

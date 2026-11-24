@@ -101,6 +101,9 @@ final class DriverTests: XCTestCase {
     /// A control with that label if there is one, else anything: a container
     /// can carry its children's text, and tapping it would miss the button.
     @MainActor private func element(_ text: String, in app: XCUIApplication) -> XCUIElement {
+        // An identifier wins: a label may also be on a key of the keyboard.
+        let named = app.descendants(matching: .any).matching(identifier: text).firstMatch
+        if named.exists { return named }
         let labelled = NSPredicate(format: "label CONTAINS[c] %@ OR placeholderValue CONTAINS[c] %@", text, text)
         for query in [app.buttons, app.switches, app.textFields, app.textViews, app.staticTexts] {
             let match = query.matching(labelled).firstMatch

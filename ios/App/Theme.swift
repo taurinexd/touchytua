@@ -18,6 +18,8 @@ enum Theme {
     static let blue = Color(hex: 0x4DA3FF)
     static let yellow = Color(hex: 0xF5D90A)
     static let red = Color(hex: 0xFF5C6C)
+    /// Behind the archive swipe: neither a yes nor a no.
+    static let archive = Color(hex: 0x3A3A3C)
     /// Claude's own colour: the mark of the task being done, as in the terminal.
     static let orange = Color(hex: 0xD97757)
 

@@ -7,13 +7,30 @@ struct SessionListView: View {
     @Binding var path: [String]
     @State private var showingSettings = false
     @State private var showingNew = false
+    /// The sessions put away from this list, kept on this phone.
+    @AppStorage("sessionArchive") private var archiveData = Data()
+
+    private var archive: SessionArchive { SessionArchive(data: archiveData) }
+
+    private func waitingOnYou(_ session: Session) -> Bool {
+        !connection.state.requests(for: session.id).isEmpty
+    }
+
+    private var shown: [Session] {
+        let archive = archive
+        return connection.state.sessions.filter { !archive.hides($0, waitingOnYou: waitingOnYou($0)) }
+    }
+
+    private var archived: Int {
+        archive.hidden(among: connection.state.sessions, waitingOnYou: waitingOnYou)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             if connection.macs.count > 1, let name = connection.macName { whichMac(name) }
             ConnectionBanner()
-            if connection.state.sessions.isEmpty {
+            if shown.isEmpty {
                 empty
             } else {
                 list
@@ -128,53 +145,93 @@ struct SessionListView: View {
                 .font(Theme.body(15))
                 .foregroundStyle(Theme.textTertiary)
                 .multilineTextAlignment(.center)
+            if archived > 0 { bringBack }
             Spacer()
         }
         .padding(32)
         .frame(maxWidth: .infinity)
     }
 
+    /// How many sessions are put away, and the way to have them back.
+    private var bringBack: some View {
+        Button {
+            var archive = archive
+            archive.bringAllBack()
+            archiveData = archive.data
+        } label: {
+            Text("\(archived) archived · Show")
+                .font(Theme.body(13))
+                .foregroundStyle(Theme.textTertiary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(archived) archived sessions")
+        .accessibilityHint("Shows them again")
+    }
+
     private var list: some View {
-        List(connection.state.sessions) { session in
-            Button {
-                path.append(session.id)
-            } label: {
-                SessionRow(session: session)
-            }
-            .buttonStyle(.plain)
-            // No vertical inset: a swipe action is as tall as its row, and
-            // has to line up with the card.
-            .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                if let request = quickRequest(for: session) {
-                    Button {
-                        Task { await connection.decide(request.id, allow: true) }
-                    } label: {
-                        Label("Approve", systemImage: "checkmark")
-                    }
-                    .labelStyle(.iconOnly)
-                    .tint(Theme.greenDeep)
-                }
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                if let request = quickRequest(for: session) {
-                    Button {
-                        Task { await connection.decide(request.id, allow: false) }
-                    } label: {
-                        Label("Deny", systemImage: "xmark")
-                    }
-                    .labelStyle(.iconOnly)
-                    .tint(Theme.redDeep)
-                }
+        List {
+            ForEach(shown) { session in row(session) }
+            if archived > 0 {
+                bringBack
+                    .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
         }
         .listStyle(.plain)
         .listRowSpacing(10)
         .contentMargins(.top, 6, for: .scrollContent)
         .scrollContentBackground(.hidden)
-        .animation(.default, value: connection.state.sessions)
+        .animation(.default, value: shown)
+    }
+
+    private func row(_ session: Session) -> some View {
+        Button {
+            path.append(session.id)
+        } label: {
+            SessionRow(session: session)
+        }
+        .buttonStyle(.plain)
+        // No vertical inset: a swipe action is as tall as its row, and
+        // has to line up with the card.
+        .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            if let request = quickRequest(for: session) {
+                Button {
+                    Task { await connection.decide(request.id, allow: true) }
+                } label: {
+                    Label("Approve", systemImage: "checkmark")
+                }
+                .labelStyle(.iconOnly)
+                .tint(Theme.greenDeep)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let request = quickRequest(for: session) {
+                Button {
+                    Task { await connection.decide(request.id, allow: false) }
+                } label: {
+                    Label("Deny", systemImage: "xmark")
+                }
+                .labelStyle(.iconOnly)
+                .tint(Theme.redDeep)
+            } else if !waitingOnYou(session) {
+                // Away from the list until it is asked something new.
+                Button {
+                    var archive = archive
+                    archive.put(away: session, at: Date())
+                    archiveData = archive.data
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .labelStyle(.iconOnly)
+                .tint(Theme.archive)
+            }
+        }
     }
 
     /// The request a swipe settles: only when the session waits on exactly

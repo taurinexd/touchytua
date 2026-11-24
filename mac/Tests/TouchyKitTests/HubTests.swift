@@ -15,6 +15,89 @@ private func env(
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("Fixtures/round.jsonl").path
 
+    /// A task list that changes behind the hub's back, as the files do.
+    private final class TaskFiles: @unchecked Sendable {
+        private let lock = NSLock()
+        private var list: [SessionTask] = []
+        private var count = 0
+        var reads: Int { lock.withLock { count } }
+        func set(_ tasks: [SessionTask]) { lock.withLock { list = tasks } }
+        func read() -> [SessionTask] {
+            lock.withLock {
+                count += 1
+                return list
+            }
+        }
+    }
+
+    @Test func theTaskListIsReadAgainWhenATaskToolFinishes() async {
+        let files = TaskFiles()
+        let hub = Hub(tasks: { _ in files.read() })
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        #expect(await hub.sessions["s1"]?.tasks == nil)
+
+        let created = [SessionTask(id: "1", subject: "Write the tests", status: .pending)]
+        files.set(created)
+        _ = await hub.handle(env("PostToolUse", at: 2, extra: ["tool_name": .string("TaskCreate")]))
+        #expect(await hub.sessions["s1"]?.tasks == created)
+
+        let started = [SessionTask(id: "1", subject: "Write the tests", status: .inProgress)]
+        files.set(started)
+        _ = await hub.handle(env("PostToolUse", at: 3, extra: ["tool_name": .string("TaskUpdate")]))
+        #expect(await hub.sessions["s1"]?.tasks == started)
+    }
+
+    @Test func otherToolsDoNotReadTheTaskList() async {
+        let files = TaskFiles()
+        let hub = Hub(tasks: { _ in files.read() })
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let reads = files.reads
+
+        _ = await hub.handle(env("PreToolUse", at: 2, extra: ["tool_name": .string("Bash")]))
+        _ = await hub.handle(env("PostToolUse", at: 3, extra: ["tool_name": .string("Bash")]))
+
+        #expect(files.reads == reads)
+    }
+
+    @Test func aChangedTaskListReachesThePhone() async {
+        let files = TaskFiles()
+        let changes = Changes()
+        let hub = Hub(onChange: { changes.add($0) }, tasks: { _ in files.read() })
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let before = changes.sessions.count
+
+        files.set([SessionTask(id: "1", subject: "Write the tests", status: .pending)])
+        _ = await hub.handle(env("PostToolUse", at: 2, extra: ["tool_name": .string("TaskCreate")]))
+
+        #expect(changes.sessions.count == before + 1)
+        #expect(changes.sessions.last?.tasks?.map(\.subject) == ["Write the tests"])
+    }
+
+    @Test func aSessionOnTheOlderTodoListShowsItsTodos() async {
+        let files = TaskFiles()
+        let hub = Hub(tasks: { _ in files.read() })
+        _ = await hub.handle(env("UserPromptSubmit", at: 1))
+        let todos: JSONValue = .array([.object(["content": .string("Read the code"), "status": .string("in_progress")])])
+
+        _ = await hub.handle(env("PostToolUse", at: 2, extra: [
+            "tool_name": .string("TodoWrite"), "tool_input": .object(["todos": todos])]))
+        // Its folder of task files stays empty: that must not clear the todos.
+        _ = await hub.handle(env("Stop", at: 3))
+
+        #expect(await hub.sessions["s1"]?.tasks == [SessionTask(id: "1", subject: "Read the code", status: .inProgress)])
+    }
+
+    @Test func aRestoredSessionGetsItsTaskListFromTheFiles() async {
+        let files = TaskFiles()
+        files.set([SessionTask(id: "1", subject: "Write the tests", status: .completed)])
+        let hub = Hub(tasks: { _ in files.read() })
+        let saved = Session(id: "s1", title: "app", cwd: "/p/app", state: .done, lastEventAt: Date(timeIntervalSince1970: 1))
+
+        await hub.restore([StoredSession(session: saved, inbox: nil, transcript: nil)])
+
+        #expect(await hub.sessions["s1"]?.tasks?.map(\.id) == ["1"])
+    }
+
     @Test func nonBlockingEventRepliesEmpty() async {
         let hub = Hub()
         let reply = await hub.handle(env("UserPromptSubmit", at: 1))
@@ -132,6 +215,10 @@ private final class Changes: @unchecked Sendable {
     var sessionTokens: [Int?] {
         lock.lock(); defer { lock.unlock() }
         return items.compactMap { if case let .session(session) = $0 { return .some(session.round?.tokens) } else { return nil } }
+    }
+    var sessions: [Session] {
+        lock.lock(); defer { lock.unlock() }
+        return items.compactMap { if case let .session(session) = $0 { return session } else { return nil } }
     }
     var sessionUpdates: Int {
         lock.lock(); defer { lock.unlock() }

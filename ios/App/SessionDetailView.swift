@@ -37,6 +37,22 @@ struct SessionDetailView: View {
         let short: Bool
     }
 
+    private func promptBar(_ session: Session) -> some View {
+        PromptBar(
+            sessionId: session.id, project: session.cwd, mode: session.shownMode, modes: session.offeredModes,
+            modeAfterTap: session.modeAfterTap, modeNote: session.modeNote)
+            .frame(maxHeight: answering == nil ? nil : 0)
+            // Cut to nothing while an answer is typed; otherwise open
+            // upwards, where the mode menu rises.
+            .mask { Rectangle().padding(.top, answering == nil ? -500 : 0) }
+            .opacity(answering == nil ? 1 : 0)
+            // Clipping cut the bar's own background off the strip below
+            // it, and the text scrolled into view there.
+            .background(Theme.background)
+            .allowsHitTesting(answering == nil)
+            .accessibilityHidden(answering != nil)
+    }
+
     private func content(_ session: Session) -> some View {
         let sent = connection.outbox.waiting(in: session.id)
         return ScrollViewReader { scroll in
@@ -105,19 +121,12 @@ struct SessionDetailView: View {
         // aside: two fields over one keyboard hide the card's Send. It
         // stays in the view, so a draft in it is not lost.
         .safeAreaInset(edge: .bottom) {
-            PromptBar(
-                sessionId: session.id, project: session.cwd, mode: session.shownMode, modes: session.offeredModes,
-                modeAfterTap: session.modeAfterTap, modeNote: session.modeNote)
-                .frame(maxHeight: answering == nil ? nil : 0)
-                // Cut to nothing while an answer is typed; otherwise open
-                // upwards, where the mode menu rises.
-                .mask { Rectangle().padding(.top, answering == nil ? -500 : 0) }
-                .opacity(answering == nil ? 1 : 0)
-                // Clipping cut the bar's own background off the strip below
-                // it, and the text scrolled into view there.
-                .background(Theme.background)
-                .allowsHitTesting(answering == nil)
-                .accessibilityHidden(answering != nil)
+            VStack(spacing: 0) {
+                if let tasks = session.tasks, !tasks.isEmpty, answering == nil {
+                    TaskListView(tasks: tasks)
+                }
+                promptBar(session)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {

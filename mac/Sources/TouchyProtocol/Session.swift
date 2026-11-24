@@ -30,6 +30,27 @@ public struct Round: Codable, Equatable, Sendable {
     }
 }
 
+/// One item of a session's task list: Claude's own checklist for the work.
+public struct SessionTask: Codable, Equatable, Sendable, Identifiable {
+    public enum Status: String, Codable, Sendable {
+        case pending, inProgress = "in_progress", completed
+    }
+
+    /// As Claude Code numbers it: "1", "2"…
+    public let id: String
+    public var subject: String
+    public var status: Status
+    /// The tasks this one waits for, by id.
+    public var blockedBy: [String]
+
+    public init(id: String, subject: String, status: Status, blockedBy: [String] = []) {
+        self.id = id
+        self.subject = subject
+        self.status = status
+        self.blockedBy = blockedBy
+    }
+}
+
 public struct Session: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public var title: String
@@ -43,10 +64,14 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
     /// The mode chosen on the phone that Claude Code has not taken yet: it
     /// changes mode only in the answer to a permission request.
     public var nextMode: String?
+    /// The session's task list. Nil when it has none, or the Mac is too
+    /// old to say.
+    public var tasks: [SessionTask]?
 
     public init(
         id: String, title: String, cwd: String, state: SessionState,
-        round: Round? = nil, lastEventAt: Date, mode: String? = nil, nextMode: String? = nil
+        round: Round? = nil, lastEventAt: Date, mode: String? = nil, nextMode: String? = nil,
+        tasks: [SessionTask]? = nil
     ) {
         self.id = id
         self.title = title
@@ -56,6 +81,7 @@ public struct Session: Codable, Equatable, Sendable, Identifiable {
         self.lastEventAt = lastEventAt
         self.mode = mode
         self.nextMode = nextMode
+        self.tasks = tasks
     }
 
     /// True when the two would be shown the same: everything except the

@@ -60,3 +60,4 @@ Definiti in `TouchyKit/Messages.swift`.
 - Codici di `error`: `unknown_request`, `unknown_session`, `inject_failed`, `unsupported_message`, `bad_message`.
 - `request.toolInput`: le stringhe oltre 2.000 caratteri arrivano tagliate (con `…`) e la richiesta porta `truncated: true`. La risposta all'hook usa sempre l'input originale.
 - Il Mac invia `session` solo quando cambia qualcosa di visibile (stato, titolo, round), non a ogni tool call.
+- `session.tasks` (facoltativo): la tasklist della sessione, `[{ id, subject, status: pending|in_progress|completed, blockedBy: [id] }]`. Il Mac la legge dai file di Claude Code (`~/.claude/tasks/<session id>/`) quando uno strumento delle task ha appena finito, e a inizio sessione, a ogni prompt e a fine round. Assente = nessuna task, o Mac più vecchio della 0.3.12.

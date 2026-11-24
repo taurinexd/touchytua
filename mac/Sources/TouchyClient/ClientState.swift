@@ -41,14 +41,31 @@ public struct ClientState: Equatable, Sendable {
             pending.removeAll { $0.id == id }
         case let .usage(usage):
             self.usage = usage
-        case .error, .history, .folders, .addresses, .unknown:
+        case .error, .history, .folders, .addresses, .about, .unknown:
             return
         }
         sessions.sort {
-            let (a, b) = ($0.state == .waiting, $1.state == .waiting)
-            return a != b ? a : $0.lastEventAt > $1.lastEventAt
+            let (a, b) = (Self.rank($0), Self.rank($1))
+            return a != b ? a < b : Self.moment($0) > Self.moment($1)
         }
         pending.sort { $0.createdAt < $1.createdAt }
+    }
+
+    /// What needs the person first, then what is running, then the rest.
+    private static func rank(_ session: Session) -> Int {
+        switch session.state {
+        case .waiting: 0
+        case .working: 1
+        case .ready, .done, .error: 2
+        }
+    }
+
+    /// What a session's place among its like goes by: the latest event,
+    /// except while it runs. A running session has a new event at every
+    /// tool call, and the rows would keep changing places: there it is
+    /// when its round began.
+    private static func moment(_ session: Session) -> Date {
+        session.state == .working ? session.round?.startedAt ?? session.lastEventAt : session.lastEventAt
     }
 
     public func requests(for sessionId: String) -> [PendingRequest] {

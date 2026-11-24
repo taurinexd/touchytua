@@ -23,13 +23,35 @@ private func request(_ id: String, session: String) -> PendingRequest {
         #expect(state.usage?.totalCostUSD == 2)
     }
 
-    /// What needs the user comes first; then the most recent activity.
-    @Test func waitingSessionsFirstThenMostRecent() {
+    /// What needs the user comes first, then what is running, then the
+    /// rest; within each, the most recent on top.
+    @Test func waitingSessionsFirstThenWorkingThenTheRest() {
         var state = ClientState()
         state.apply(.session(session("old-working", .working, at: 1)))
         state.apply(.session(session("new-done", .done, at: 9)))
+        state.apply(.session(session("old-done", .done, at: 2)))
         state.apply(.session(session("waiting", .waiting, at: 3)))
-        #expect(state.sessions.map(\.id) == ["waiting", "new-done", "old-working"])
+        state.apply(.session(session("new-working", .working, at: 4)))
+        state.apply(.session(session("failed", .error, at: 5)))
+        #expect(state.sessions.map(\.id) == ["waiting", "new-working", "old-working", "new-done", "failed", "old-done"])
+    }
+
+    /// A running session says something new at every tool call: its place
+    /// among the running ones goes by when its round began, or the rows
+    /// would keep changing places.
+    @Test func workingSessionsKeepTheirPlacesWhileTheyWork() {
+        var state = ClientState()
+        var first = session("first", .working, at: 10)
+        first.round = Round(startedAt: Date(timeIntervalSince1970: 10))
+        var second = session("second", .working, at: 20)
+        second.round = Round(startedAt: Date(timeIntervalSince1970: 20))
+        state.apply(.session(first))
+        state.apply(.session(second))
+        #expect(state.sessions.map(\.id) == ["second", "first"])
+
+        first.lastEventAt = Date(timeIntervalSince1970: 30)
+        state.apply(.session(first))
+        #expect(state.sessions.map(\.id) == ["second", "first"])
     }
 
     @Test func sessionUpdateReplacesInPlace() {

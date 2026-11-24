@@ -27,7 +27,6 @@ struct SessionListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             if connection.macs.count > 1, let name = connection.macName { whichMac(name) }
             ConnectionBanner()
             if shown.isEmpty {
@@ -37,12 +36,44 @@ struct SessionListView: View {
             }
         }
         .background(Theme.background)
-        .toolbar(.hidden, for: .navigationBar)
+        // In the system's own bar, as the session's screen is: a bar hidden
+        // here and shown there makes that screen settle a moment after it
+        // has slid in, and held sideways nothing kept this one off the edge.
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Theme.background, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { heading }
+                .sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingNew = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.green)
+                }
+                .disabled(!connected)
+                .accessibilityLabel("New session")
+            }
+            ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
         .sheet(isPresented: $showingSettings) { SettingsView() }
         .sheet(isPresented: $showingNew) { NewSessionView { path.append($0) } }
     }
 
-    private var header: some View {
+    /// What the bar says on the left: the usage of the account, or the
+    /// app's name until the Mac has said it.
+    private var heading: some View {
         HStack(spacing: 14) {
             if let usage = connection.state.usage, usage != Usage() {
                 if let cost = usage.totalCostUSD {
@@ -59,36 +90,8 @@ struct SessionListView: View {
                     .font(Theme.display(17, .bold))
                     .foregroundStyle(Theme.text)
             }
-            Spacer()
-            Button {
-                showingNew = true
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.green)
-                    .frame(width: 40, height: 40)
-                    .glassEffect(.regular.interactive(connected), in: Circle())
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .disabled(!connected)
-            .opacity(connected ? 1 : 0.35)
-            .accessibilityLabel("New session")
-            Button {
-                showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 40, height: 40)
-                    .glassEffect(.regular.interactive(), in: Circle())
-                    .frame(width: 44, height: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Settings")
         }
-        .padding(.leading, 18)
-        .padding(.trailing, 6)
+        .fixedSize()
     }
 
     /// With more than one Mac paired, whose sessions these are, and the way

@@ -60,12 +60,20 @@ struct SessionDetailView: View {
         return ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(session.headline)
-                        .font(Theme.display(20, .bold))
-                        .foregroundStyle(Theme.text)
-                        .lineLimit(2)
-                    EarlierView(page: connection.earlier.page(of: session.id)) {
-                        Task { await connection.loadEarlier(sessionId: session.id) }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(session.headline)
+                            .font(Theme.display(20, .bold))
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(2)
+                        Spacer(minLength: 0)
+                        EarlierButton(page: connection.earlier.page(of: session.id)) {
+                            Task { await connection.loadEarlier(sessionId: session.id) }
+                        }
+                    }
+                    // Only when it has something to show: an empty view
+                    // would still take its share of the spacing.
+                    if EarlierView.hasSomething(connection.earlier.page(of: session.id)) {
+                        EarlierView(page: connection.earlier.page(of: session.id))
                     }
                     ForEach(connection.state.requests(for: session.id)) { request in
                         if request.kind == .question, !request.questions.isEmpty {
@@ -239,31 +247,50 @@ struct SentPromptsView: View {
 
 /// The conversation before the round on screen, loaded a page at a time
 /// when asked for: prompts, replies, and a line for the tools in between.
-struct EarlierView: View {
+/// Asks for the conversation before what is on screen. It sits on the
+/// session's title row, so it is short; while more is on its way it turns
+/// into a spinner, and it goes away when there is nothing more to ask for.
+struct EarlierButton: View {
     let page: Earlier.Page
     let load: () -> Void
+
+    var body: some View {
+        if page.isLoading {
+            ProgressView()
+                .tint(Theme.textTertiary)
+                .frame(width: 36, height: 36)
+                .accessibilityLabel("Loading earlier messages")
+        } else if page.canLoadMore, !page.isUnavailable {
+            Button(action: load) {
+                Label("Earlier", systemImage: "chevron.up")
+                    .font(Theme.display(14, .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .padding(.horizontal, 13)
+                    .frame(height: 36)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .fixedSize()
+            .accessibilityLabel("Earlier messages")
+        }
+    }
+}
+
+/// The earlier conversation, as far as it was asked for, and a line when
+/// there is none to show or no more to ask for.
+struct EarlierView: View {
+    let page: Earlier.Page
+
+    static func hasSomething(_ page: Earlier.Page) -> Bool {
+        page.isUnavailable || !page.items.isEmpty || (!page.isLoading && !page.canLoadMore)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if page.isUnavailable {
                 note("History isn't available for this session.")
-            } else if page.isLoading {
-                HStack(spacing: 8) {
-                    ProgressView().tint(Theme.textTertiary)
-                    note("Loading…")
-                }
-            } else if page.canLoadMore {
-                Button(action: load) {
-                    Label("Earlier messages", systemImage: "chevron.up")
-                        .font(Theme.display(14, .medium))
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                        .glassEffect(.regular.interactive(), in: Capsule())
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-            } else {
+            } else if !page.isLoading, !page.canLoadMore {
                 note(page.items.isEmpty ? "Nothing came before this." : "This is where the conversation began.")
             }
             if !page.items.isEmpty {

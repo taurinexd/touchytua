@@ -68,29 +68,35 @@ struct SessionListView: View {
         .padding(.trailing, 6)
     }
 
-    /// With more than one Mac paired, whose sessions these are. The Macs
-    /// are changed in the settings, one tap from here.
+    /// With more than one Mac paired, whose sessions these are, and the way
+    /// to another: the same menu the settings use for a choice among a few.
     private func whichMac(_ name: String) -> some View {
-        Button {
-            showingSettings = true
-        } label: {
-            HStack(spacing: 6) {
-                Text(name.uppercased())
-                    .font(Theme.display(12, .bold))
-                    .tracking(0.8)
-                    .lineLimit(1)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                Spacer()
+        HStack {
+            Menu {
+                Picker("Mac", selection: Binding(
+                    get: { connection.macInUse },
+                    set: { mac in if let mac { connection.use(mac) } })
+                ) {
+                    ForEach(connection.macs) { Text($0.name).tag(Optional($0.id)) }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(name.uppercased())
+                        .font(Theme.display(12, .bold))
+                        .tracking(0.8)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .foregroundStyle(Theme.textTertiary)
+                .padding(.horizontal, 18)
+                .frame(minHeight: 32)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(Theme.textTertiary)
-            .padding(.horizontal, 18)
-            .frame(minHeight: 32)
-            .contentShape(Rectangle())
+            .accessibilityLabel("Mac: \(name)")
+            .accessibilityHint("Shows the paired Macs")
+            Spacer()
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Mac: \(name)")
-        .accessibilityHint("Opens the settings, where the Mac is changed")
     }
 
     private var connected: Bool {

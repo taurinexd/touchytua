@@ -18,6 +18,19 @@ struct TaskListView: View {
     @State private var keyboardUp = false
     @Environment(\.verticalSizeClass) private var height
 
+    private let rowHeight: CGFloat = 24
+    private let footHeight: CGFloat = 28
+
+    private func listHeight(_ picture: TaskListPicture) -> CGFloat {
+        let rows = CGFloat(picture.rows.count) * rowHeight
+        return whole ? min(rows, height == .compact ? 120 : 264) : rows
+    }
+
+    private func bodyHeight(_ picture: TaskListPicture) -> CGFloat {
+        let foot = picture.more != nil || (whole && tasks.count > TaskListPicture.shownAtATime)
+        return listHeight(picture) + (foot ? footHeight : 0) + 6
+    }
+
     private var unfolded: Bool {
         !keyboardUp && (height == .compact ? openWhenShort : open)
     }
@@ -29,10 +42,13 @@ struct TaskListView: View {
         VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Theme.border).frame(height: 1)
             heading(picture)
-            if unfolded {
+            // Always there, at its height or none: the heading rides on
+            // top of it, so the rows slide away under the prompt bar and
+            // come back from there, never there or gone at once.
+            VStack(alignment: .leading, spacing: 0) {
                 if whole {
                     ScrollView { rows(picture) }
-                        .frame(maxHeight: height == .compact ? 120 : 264)
+                        .frame(height: listHeight(picture))
                 } else {
                     rows(picture)
                 }
@@ -42,9 +58,17 @@ struct TaskListView: View {
                     foot("… show less") { whole = false }
                 }
             }
+            // The five rows and the whole list change places at once; it
+            // is the room around them that grows or shrinks.
+            .id(whole)
+            .transition(.identity)
+            .modifier(Reveal(height: unfolded ? bodyHeight(picture) : 0))
+            .opacity(unfolded ? 1 : 0)
+            .accessibilityHidden(!unfolded)
         }
-        .padding(.bottom, unfolded ? 6 : 0)
         .background(Theme.background)
+        .animation(.snappy(duration: 0.28), value: unfolded)
+        .animation(.snappy(duration: 0.28), value: whole)
         .onChange(of: tasks, initial: true) {
             watch.observe(tasks, at: Date())
             now = Date()
@@ -103,7 +127,7 @@ struct TaskListView: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
-                .frame(minHeight: 24)
+                .frame(height: rowHeight)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(spoken(row))
             }
@@ -154,9 +178,27 @@ struct TaskListView: View {
                 .foregroundStyle(Theme.textTertiary)
                 .padding(.leading, 36)
                 .padding(.trailing, 16)
-                .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: footHeight, maxHeight: footHeight, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A height that is laid out anew at every step of an animation, with what
+/// is inside kept at the top and cut at the bottom. A plain frame animates
+/// the views around it one by one, and they drift apart on the way.
+private struct Reveal: ViewModifier, @preconcurrency Animatable {
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .frame(height: max(0, height), alignment: .top)
+            .clipped()
     }
 }

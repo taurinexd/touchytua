@@ -56,7 +56,13 @@ let sessionStore = SessionStore(path: runDir + "/sessions.json")
 // Read before the hook socket opens: the first event to come in saves a
 // registry of its own, and a hook held back by a restart comes in at once.
 let savedSessions = sessionStore.load()
-let hub = Hub(onChange: { relay.forward($0) }, persist: { sessionStore.save($0) })
+let hub = Hub(
+    onChange: { relay.forward($0) }, persist: { sessionStore.save($0) },
+    tasks: { session in
+        // Claude Code keeps the lists under the person's home; a test points elsewhere.
+        TaskList.directory(sessionId: session, userHome: env["TOUCHYTUA_USER_HOME"] ?? NSHomeDirectory())
+            .map(TaskList.read(directory:)) ?? []
+    })
 let store = PairingStore(directory: home)
 // Sessions started from the phone: `claude --bg` in a folder from the list,
 // with the daemon's own environment. It hands the session to Claude Code's

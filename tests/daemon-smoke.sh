@@ -11,7 +11,7 @@ fail=0
 # A restart in progress leaves a marker that makes hooks wait: the daemon
 # clears it once it listens.
 mkdir -p "$HOME_T/run"; : > "$HOME_T/run/restarting"
-TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=2 TOUCHYTUA_GREETING_SECONDS=1 "$D" 2>"$HOME_T/log" &
+TOUCHYTUA_HOME="$HOME_T" TOUCHYTUA_USER_HOME="$HOME_T/user" TOUCHYTUA_PORT=47398 TOUCHYTUA_REAP_SECONDS=2 TOUCHYTUA_GREETING_SECONDS=1 "$D" 2>"$HOME_T/log" &
 PID=$!; sleep 0.7
 [ ! -e "$HOME_T/run/restarting" ] && [ -S "$HOME_T/run/hook.sock" ] && echo "PASS restart marker cleared once listening" || { echo "FAIL restart marker still there"; fail=1; }
 nc -lkU "$HOME_T/live.sock" >/dev/null 2>&1 &
@@ -24,6 +24,13 @@ sleep 0.3
 sleep 3
 kill -0 $PID 2>/dev/null && echo "PASS daemon alive after reaper runs" || { echo "FAIL daemon died: $(tail -2 "$HOME_T/log")"; fail=1; }
 /usr/bin/jq -e 'map(.session.id)==["live"]' "$HOME_T/run/sessions.json" >/dev/null && echo "PASS dead session reaped, live kept" || { echo "FAIL reap: $(cat "$HOME_T/run/sessions.json" 2>&1)"; fail=1; }
+# The session's task list is read from Claude Code's files when a task tool has run.
+mkdir -p "$HOME_T/user/.claude/tasks/live"
+echo '{"id":"1","subject":"Write the tests","status":"in_progress","blocks":[],"blockedBy":[]}' > "$HOME_T/user/.claude/tasks/live/1.json"
+echo '{"hook_event_name":"PostToolUse","session_id":"live","cwd":"/p/live","tool_name":"TaskCreate","tool_input":{"subject":"Write the tests"}}' |
+  CLAUDE_CODE_MESSAGING_SOCKET="$HOME_T/live.sock" CLAUDE_CODE_MESSAGING_TOKEN=tok TOUCHYTUA_HOOK_SOCKET="$HOME_T/run/hook.sock" "$H" >/dev/null 2>&1
+sleep 0.3
+/usr/bin/jq -e 'map(select(.session.id=="live"))[0].session.tasks==[{"id":"1","subject":"Write the tests","status":"in_progress","blockedBy":[]}]' "$HOME_T/run/sessions.json" >/dev/null && echo "PASS task list read from the session's files" || { echo "FAIL task list: $(/usr/bin/jq -c 'map(.session.tasks)' "$HOME_T/run/sessions.json" 2>&1)"; fail=1; }
 # A connection that never says hello is dropped: anyone on the network can
 # open one, and each holds a thread.
 took=$(perl -MIO::Socket::INET -MTime::HiRes=time -e '

@@ -58,6 +58,14 @@ public actor Hub {
     /// message can be written after the Stop hook has run.
     private let secondLooks: [Duration]
     private let pause: @Sendable (Duration) async -> Void
+    /// Reads a session's task list from where Claude Code keeps it.
+    private let tasks: (@Sendable (String) -> [SessionTask])?
+    /// Sessions on the older todo list: theirs arrives whole in the tool
+    /// call, and no file holds it.
+    private var onTodos: Set<String> = []
+    /// The events after which the task files may have changed without a
+    /// task tool saying so here: a resumed session, a list cleared by hand.
+    static let taskListReadAt: Set<String> = ["SessionStart", "UserPromptSubmit", "Stop", "StopFailure"]
 
     /// `persist` receives the whole registry, credentials included, each
     /// time something worth keeping across a restart changes.
@@ -66,8 +74,10 @@ public actor Hub {
         persist: (@Sendable ([StoredSession]) -> Void)? = nil,
         secondLooks: [Duration] = [.seconds(1), .seconds(4)],
         pause: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        tasks: (@Sendable (String) -> [SessionTask])? = nil
     ) {
+        self.tasks = tasks
         self.clock = clock
         self.onChange = onChange
         self.persist = persist
@@ -89,6 +99,8 @@ public actor Hub {
                 sessions[id]?.nextMode = nil
                 inbox[id] = entry.inbox
                 transcripts[id] = entry.transcript
+                // The files are newer than what was saved.
+                if let tasks { sessions[id]?.tasks = Self.shown(tasks(id)) }
                 continue
             }
             // An event beat the restore and made the session from scratch:
@@ -132,6 +144,7 @@ public actor Hub {
         if name == "Stop" || name == "StopFailure" { enrichRound(sessionId, envelope) }
         if name == "UserPromptSubmit" || name == "PermissionRequest" { nameSession(sessionId, envelope) }
         follow(sessionId, name, envelope)
+        followTasks(sessionId, name, envelope, firstSight: before == nil)
         let forced = await followModeChange(sessionId, name, envelope)
         if let session = sessions[sessionId] {
             // Every event carries the inbox credentials: a daemon restarted
@@ -148,6 +161,7 @@ public actor Hub {
             inbox[sessionId] = nil
             transcripts[sessionId] = nil
             boards[sessionId] = nil
+            onTodos.remove(sessionId)
             countedAt[sessionId] = nil
             modeChanges[sessionId] = nil
             onChange(.sessionRemoved(id: sessionId))
@@ -193,6 +207,28 @@ public actor Hub {
             return
         }
         sessions[id]?.round = round
+    }
+
+    /// Keeps the session's task list as Claude Code has it. The list is
+    /// in files, so it is read again when a task tool has just run, and at
+    /// the few moments it may have changed otherwise; never at every event.
+    private func followTasks(_ id: String, _ name: String, _ envelope: HookEnvelope, firstSight: Bool) {
+        guard sessions[id] != nil else { return }
+        let tool = name == "PostToolUse" ? envelope.event["tool_name"]?.stringValue : nil
+        if tool == "TodoWrite" {
+            onTodos.insert(id)
+            sessions[id]?.tasks = Self.shown(TaskList.fromTodos(envelope.event["tool_input"]?.objectValue?["todos"]))
+            return
+        }
+        let changed = tool == "TaskCreate" || tool == "TaskUpdate"
+        if changed { onTodos.remove(id) }
+        guard let tasks, !onTodos.contains(id), changed || firstSight || Self.taskListReadAt.contains(name) else { return }
+        sessions[id]?.tasks = Self.shown(tasks(id))
+    }
+
+    /// No list at all rather than an empty one: nothing is shown for it.
+    private static func shown(_ tasks: [SessionTask]) -> [SessionTask]? {
+        tasks.isEmpty ? nil : tasks
     }
 
     /// The phone chose a permission mode. Claude Code takes one from a

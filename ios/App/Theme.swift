@@ -18,6 +18,8 @@ enum Theme {
     static let blue = Color(hex: 0x4DA3FF)
     static let yellow = Color(hex: 0xF5D90A)
     static let red = Color(hex: 0xFF5C6C)
+    /// Claude's own colour: the mark of the task being done, as in the terminal.
+    static let orange = Color(hex: 0xD97757)
 
     /// Titles and status labels.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {

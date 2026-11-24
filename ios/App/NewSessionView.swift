@@ -35,6 +35,7 @@ struct NewSessionView: View {
                     .font(Theme.display(16, .bold))
                     .foregroundStyle(Theme.textSecondary)
                     .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(DimPressStyle())
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -130,7 +131,7 @@ struct NewSessionView: View {
                     .strokeBorder(picked ? Theme.green : Theme.border, lineWidth: picked ? 1.5 : 1)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowPressStyle(radius: 12))
         .accessibilityAddTraits(picked ? .isSelected : [])
     }
 

@@ -84,14 +84,13 @@ struct ModeButton: View {
             .font(.system(size: 16, weight: .semibold))
             .foregroundStyle(mode.color)
             .frame(width: 42, height: 42)
-            .background(Theme.surfaceRaised, in: Circle())
             .overlay {
                 Circle().strokeBorder(
                     mode.color.opacity(open ? 1 : 0.55),
                     style: StrokeStyle(lineWidth: 1.5, dash: pending ? [4, 3] : []))
             }
+            .glassEffect(.regular.interactive(), in: Circle())
             .shadow(color: mode.color.opacity(open ? 0.5 : 0), radius: 8)
-            .scaleEffect(open ? 1.12 : 1)
             .contentShape(Circle())
     }
 

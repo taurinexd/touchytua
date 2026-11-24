@@ -152,7 +152,7 @@ struct QuestionCard: View {
             }
             .shadow(color: isPicked ? Theme.yellow.opacity(0.4) : .clear, radius: 6)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(RowPressStyle(radius: 12))
         .accessibilityAddTraits(isPicked ? .isSelected : [])
     }
 

@@ -418,6 +418,45 @@ actor Gate {
         #expect(manager.outbox.waiting(in: "s1").isEmpty)
     }
 
+    @Test func aNoticeGoesAwayByItself() async {
+        let mac = pairedMac(endpoints: [lan])
+        await openSession("s1", on: mac)  // a session without an inbox
+        network.set(lan, .mac(mac))
+        var timing = ConnectionManager.Timing.fast
+        timing.noticeLifetime = .milliseconds(60)
+        let manager = manager(timing)
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+
+        await manager.prompt(sessionId: "s1", text: "run the tests")
+        #expect(await eventually { manager.notice == ConnectionManager.promptNotDeliveredMessage })
+
+        #expect(await eventually { manager.notice == nil })
+    }
+
+    @Test func aNewerNoticeIsNotTakenAwayByTheTimerOfAnOlderOne() async {
+        let mac = pairedMac(endpoints: [lan])
+        await openSession("s1", on: mac)
+        network.set(lan, .mac(mac))
+        var timing = ConnectionManager.Timing.fast
+        timing.noticeLifetime = .milliseconds(300)
+        let manager = manager(timing)
+        defer { manager.stop() }
+        manager.start()
+        #expect(await eventually { manager.state.sessions.count == 1 })
+
+        await manager.prompt(sessionId: "s1", text: "one")
+        #expect(await eventually { manager.notice != nil })
+        try? await Task.sleep(for: .milliseconds(200))
+        await manager.prompt(sessionId: "s1", text: "two")
+        #expect(await eventually { manager.notice != nil })
+        // The first timer is due now; the second notice has 300 ms of its own.
+        try? await Task.sleep(for: .milliseconds(160))
+        #expect(manager.notice == ConnectionManager.promptNotDeliveredMessage)
+        #expect(await eventually { manager.notice == nil })
+    }
+
     @Test func aSentPromptStaysOnScreenUntilClaudeTakesIt() async {
         let mac = pairedMac(endpoints: [lan])
         await openSession("s1", on: mac)

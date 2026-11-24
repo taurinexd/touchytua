@@ -73,6 +73,7 @@ struct PromptBar: View {
                 Text(notice)
                     .font(Theme.body(13))
                     .foregroundStyle(Theme.red)
+                    .transition(.opacity)
             } else if let hint = hint ?? modeNote {
                 Text(hint)
                     .font(Theme.body(13))
@@ -109,8 +110,9 @@ struct PromptBar: View {
                             .font(.system(size: 17, weight: .bold))
                             .foregroundStyle(Color.black)
                             .frame(width: 42, height: 42)
-                            .background(Theme.green, in: Circle())
+                            .glassEffect(.regular.tint(Theme.green).interactive(), in: Circle())
                     }
+                    .buttonStyle(.plain)
                     .disabled(!connected)
                     .opacity(connected ? 1 : 0.35)
                     .accessibilityLabel("Send message")
@@ -119,10 +121,17 @@ struct PromptBar: View {
             }
             .animation(.snappy(duration: 0.2), value: dictating)
             .animation(.snappy(duration: 0.2), value: hasText)
+            // The green outline of the field and of the microphone comes
+            // and goes with the listening itself, which begins a moment
+            // after the touch and ends a moment after the release.
+            .animation(.easeInOut(duration: 0.3), value: phase == .listening)
+            .animation(.easeInOut(duration: 0.2), value: slidAway)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(Theme.background)
+        // A notice comes and goes by itself: softly, not at once.
+        .animation(.easeInOut(duration: 0.25), value: connection.notice)
         .task(id: language) { locale = await resolveLocale() }
         .onChange(of: dictation.text) { _, spoken in
             if dictating { text = spoken }
@@ -280,8 +289,8 @@ struct MicrophoneLabel: View {
                 .opacity(listening ? 1 : 0)
         }
         .frame(width: listening ? 76 : 42, height: 42)
-        .background(Theme.surfaceRaised, in: Capsule())
         .overlay { Capsule().strokeBorder(color.opacity(listening ? 1 : 0.55), lineWidth: 1.5) }
+        .glassEffect(.regular.interactive(), in: Capsule())
         .shadow(color: color.opacity(listening ? 0.5 : 0), radius: 8)
         .contentShape(Capsule())
     }
